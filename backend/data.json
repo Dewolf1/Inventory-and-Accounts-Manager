@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "name": "Stealth Bomber Jacket",
+    "category": "Clothing",
+    "sku": "SPY-001",
+    "stock": 12,
+    "price": 299
+  },
+  {
+    "id": 2,
+    "name": "Tactical Cargo Pants",
+    "category": "Clothing",
+    "sku": "SPY-002",
+    "stock": 4,
+    "price": 120.5
+  }
+]

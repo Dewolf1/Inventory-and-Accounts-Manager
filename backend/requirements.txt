@@ -1,0 +1,21 @@
+# Backend Requirements for Spy Garments
+
+## Software Prerequisites
+- **Node.js**: v14.x or higher
+- **npm**: v6.x or higher
+
+## Node.js Dependencies
+These will be installed via `npm install`:
+- **express**: Fast, unopinionated, minimalist web framework for Node.js.
+- **cors**: Middleware for providing a Connect/Express middleware that can be used to enable CORS.
+- **body-parser**: Node.js body parsing middleware.
+- **sqlite3**: Asynchronous, non-blocking SQLite3 bindings for Node.js.
+
+## System Prerequisites
+- Internet connection (for initial package installation).
+- Port 3000 available on localhost.
+
+## Project Summary
+- **Backend Type**: Node.js / Express
+- **Database**: SQLite3
+- **Integrated Features**: Payment Verification Workflow & Automated Ledger Recording.

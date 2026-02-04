@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spy Garments | Wholesale Jeans</title>
+
+    <!-- Fonts: Outfit for a modern, tech feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Icons: Phosphor Icons (Lightweight, beautiful) -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <!-- Charts: Chart.js for the dashboard -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="logo.png">
+</head>
+
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loader-content">
+            <div class="logo-wrapper large">
+                <img src="logo.png" alt="Spy Garments Logo" class="brand-logo">
+            </div>
+            <h1 class="brand-title">Spy Garments</h1>
+            <p style="color:var(--text-muted); letter-spacing: 2px; font-size: 14px;">WHOLESALE INVENTORY SYSTEM</p>
+            <div class="loading-bar">
+                <div class="bar-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-container hidden">
+        <div class="login-card">
+            <div class="brand-header">
+                <div class="logo-wrapper">
+                    <img src="logo.png" alt="Spy Garments Logo" class="brand-logo">
+                </div>
+                <h2>Spy Garments</h2>
+            </div>
+            <p class="login-subtitle">Wholesale Admin Portal</p>
+            <form id="login-form" onsubmit="app.handleLogin(event)">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="login-username" required placeholder="admin">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="primary-btn full-width">
+                    <span>Enter Dashboard</span>
+                    <i class="ph ph-arrow-right"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="app-container hidden" id="main-app">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo-wrapper">
+                    <img src="logo.png" alt="Spy Garments Logo" class="brand-logo small">
+                </div>
+                <span class="logo-text">Spy Garments</span>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" onclick="app.navigate('dashboard')">
+                    <i class="ph ph-squares-four"></i>
+                    <span>Dashboard</span>
+                </button>
+                <button class="nav-item" onclick="app.navigate('inventory')">
+                    <i class="ph ph-pants"></i>
+                    <span>Inventory</span>
+                </button>
+                <button class="nav-item" onclick="app.navigate('washing')">
+                    <i class="ph ph-drop"></i>
+                    <span>Washing</span>
+                </button>
+                <button class="nav-item" onclick="app.navigate('accounts')">
+                    <i class="ph ph-wallet"></i>
+                    <span>Accounts</span>
+                </button>
+                <button class="nav-item" onclick="app.navigate('clients')">
+                    <i class="ph ph-users-three"></i>
+                    <span>Clients</span>
+                </button>
+                <button class="nav-item" onclick="app.navigate('orders')">
+                    <i class="ph ph-shopping-cart"></i>
+                    <span>Orders</span>
+                </button>
+                <button class="nav-item" onclick="app.navigate('settings')">
+                    <i class="ph ph-gear"></i>
+                    <span>Settings</span>
+                </button>
+            </nav>
+
+            <div class="user-profile">
+                <div class="avatar">
+                    <img src="https://ui-avatars.com/api/?name=Spy+Admin&background=6366f1&color=fff" alt="User">
+                </div>
+                <div class="user-info">
+                    <span class="name">Administrator</span>
+                    <span class="role">Spy Garments HK</span>
+                </div>
+                <button class="logout-btn" onclick="app.logout()" title="Logout">
+                    <i class="ph ph-sign-out"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="top-bar">
+                <h1 id="page-title">Dashboard</h1>
+                <div class="actions">
+                    <div class="search-bar">
+                        <i class="ph ph-magnifying-glass"></i>
+                        <input type="text" id="global-search" placeholder="Search SKU, Fit, or Client..."
+                            onkeyup="app.handleSearch(event)">
+                    </div>
+                    <button class="icon-btn notification-btn" onclick="app.toggleNotifications()">
+                        <i class="ph ph-bell"></i>
+                        <span class="badge hidden" id="notif-badge"></span>
+                    </button>
+                    <!-- Notification Dropdown -->
+                    <div class="notification-dropdown hidden" id="notification-dropdown">
+                        <h3>Notifications</h3>
+                        <ul id="notification-list">
+                            <!-- Populated by JS -->
+                        </ul>
+                    </div>
+
+                    <button class="primary-btn" onclick="app.openActionMenu()">
+                        <i class="ph ph-plus"></i>
+                        <span>Create New</span>
+                    </button>
+
+                    <div class="action-menu hidden" id="action-menu">
+                        <button onclick="app.openProductModal()">New Product</button>
+                        <button onclick="app.openWashingModal()">Send to Washing</button>
+                        <button onclick="app.openOrderModal()">New Order</button>
+                        <button onclick="app.openClientModal()">New Client</button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dynamic Views -->
+            <div id="view-container" class="view-container">
+                <!-- Dashboard View -->
+                <div id="view-dashboard" class="view active-view">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="icon-wrapper blue">
+                                <i class="ph ph-package"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Total Bundles</span>
+                                <span class="value" id="dash-total-products">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="icon-wrapper orange">
+                                <i class="ph ph-warning-octagon"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Low Stock Alerts</span>
+                                <span class="value" id="dash-low-stock">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="icon-wrapper green">
+                                <i class="ph ph-currency-inr"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Inventory Value</span>
+                                <span class="value" id="dash-total-value">₹0.00</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="icon-wrapper orange">
+                                <i class="ph ph-hand-coins"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Total Receivables</span>
+                                <span class="value" id="dash-receivables">₹0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-widgets">
+                        <div class="widget chart-widget">
+                            <div class="widget-header header-with-nav">
+                                <h3 id="chart-title">Category Distribution</h3>
+                                <div class="chart-nav">
+                                    <button class="nav-arrow" onclick="app.slideChart(-1)"><i
+                                            class="ph ph-caret-left"></i></button>
+                                    <button class="nav-arrow" onclick="app.slideChart(1)"><i
+                                            class="ph ph-caret-right"></i></button>
+                                </div>
+                            </div>
+                            <div class="chart-slider">
+                                <div class="chart-slide active-slide" id="slide-1">
+                                    <canvas id="categoryChart"></canvas>
+                                </div>
+                                <div class="chart-slide" id="slide-2">
+                                    <canvas id="orderChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="widget recent-widget">
+                            <div class="widget-header">
+                                <h3>Recent Activity</h3>
+                            </div>
+                            <ul class="activity-list" id="activity-list">
+                                <!-- Populated by JS -->
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Inventory View -->
+                <div id="view-inventory" class="view">
+                    <div class="table-actions-bar">
+                        <div class="filters">
+                            <select id="filter-category" onchange="app.applyCategoryFilter()">
+                                <option value="">All Categories</option>
+                                <option value="Regular Fit">Regular Fit</option>
+                                <option value="Slim Fit">Slim Fit</option>
+                                <option value="Straight Fit">Straight Fit</option>
+                                <option value="Skinny Fit">Skinny Fit</option>
+                                <option value="Relaxed Fit">Relaxed Fit</option>
+                                <option value="Tapered Fit">Tapered Fit</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Article Name</th>
+                                    <th>Article No.</th>
+                                    <th>Fit & Wash</th>
+                                    <th>Category</th>
+                                    <th>Bundles (Qty)</th>
+                                    <th>Price/Bundle (₹)</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-table-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Washing View -->
+                <div id="view-washing" class="view">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Washing ID</th>
+                                    <th>Article Name</th>
+                                    <th>Article No.</th>
+                                    <th>Bundles Sent</th>
+                                    <th>Sent Date</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="washing-table-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Orders View -->
+                <div id="view-orders" class="view">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Order ID</th>
+                                    <th>Client Name</th>
+                                    <th>Items (Bundles)</th>
+                                    <th>Total Amount</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Payment</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orders-table-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Accounts View -->
+                <div id="view-accounts" class="view">
+                    <!-- Financial Summary Cards -->
+                    <div class="stats-grid" style="margin-bottom: 2rem;">
+                        <div class="stat-card">
+                            <div class="icon-wrapper green">
+                                <i class="ph ph-trend-up"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Total Revenue</span>
+                                <span class="value" id="acc-revenue">₹0.00</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="icon-wrapper orange">
+                                <i class="ph ph-trend-down"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Total Expenses</span>
+                                <span class="value" id="acc-expenses">₹0.00</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="icon-wrapper blue">
+                                <i class="ph ph-coins"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Net Profit/Loss</span>
+                                <span class="value" id="acc-profit">₹0.00</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="icon-wrapper" style="background: rgba(239, 68, 68, 0.2);">
+                                <i class="ph ph-warning" style="color: #ef4444;"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="label">Wastage Loss</span>
+                                <span class="value" id="acc-wastage">₹0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                        <button class="primary-btn" onclick="app.openTransactionModal('income')">
+                            <i class="ph ph-plus-circle"></i>
+                            <span>Add Income</span>
+                        </button>
+                        <button class="secondary-btn" onclick="app.openTransactionModal('expense')">
+                            <i class="ph ph-minus-circle"></i>
+                            <span>Add Expense</span>
+                        </button>
+                        <button class="secondary-btn" onclick="app.openWastageModal()">
+                            <i class="ph ph-trash"></i>
+                            <span>Record Wastage</span>
+                        </button>
+                    </div>
+
+                    <!-- Ledger Table -->
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Category</th>
+                                    <th>Description</th>
+                                    <th>Amount</th>
+                                    <th>Balance</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ledger-table-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Clients View -->
+                <div id="view-clients" class="view">
+                    <div class="table-actions-bar">
+                        <button class="primary-btn" onclick="app.openClientModal()">
+                            <i class="ph ph-user-plus"></i>
+                            <span>Add New Client</span>
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Client Name</th>
+                                    <th>Contact</th>
+                                    <th>Address</th>
+                                    <th>Total Orders</th>
+                                    <th>Total Value</th>
+                                    <th>Owed (Unpaid)</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clients-table-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Settings View -->
+                <div id="view-settings" class="view">
+                    <div class="settings-panel">
+                        <h3>System Configuration</h3>
+                        <p>Manage application data and preferences.</p>
+                        <div class="setting-item">
+                            <label>Default Currency</label>
+                            <select disabled>
+                                <option>INR (₹)</option>
+                            </select>
+                        </div>
+                        <button class="danger-btn" onclick="app.resetData()">Reset System Data</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- PRODUCT MODAL -->
+    <div id="product-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Add New Article</h3>
+                <button class="close-btn" onclick="app.closeModal('product-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="product-form" onsubmit="app.handleProductSubmit(event)">
+                    <input type="hidden" id="p-id">
+
+                    <div class="form-group">
+                        <label>Article Name (e.g. Classic Blue Denim)</label>
+                        <input type="text" id="p-name" required placeholder="Article Name">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Article No. (SKU)</label>
+                            <input type="text" id="p-sku" required placeholder="e.g. JB-001">
+                        </div>
+                        <div class="form-group">
+                            <label>Category</label>
+                            <select id="p-category">
+                                <option value="Regular Fit">Regular Fit</option>
+                                <option value="Slim Fit">Slim Fit</option>
+                                <option value="Straight Fit">Straight Fit</option>
+                                <option value="Skinny Fit">Skinny Fit</option>
+                                <option value="Relaxed Fit">Relaxed Fit</option>
+                                <option value="Tapered Fit">Tapered Fit</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Fit Type</label>
+                            <select id="p-fit">
+                                <option value="Slim">Slim Fit</option>
+                                <option value="Regular">Regular Fit</option>
+                                <option value="Skinny">Skinny Fit</option>
+                                <option value="Bootcut">Bootcut</option>
+                                <option value="Straight">Straight Leg</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Wash / Color</label>
+                            <input type="text" id="p-wash" placeholder="e.g. Dark Stone, Acid Wash">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Size Ratio (Comma separated)</label>
+                        <input type="text" id="p-sizes" placeholder="e.g. 28, 30, 32, 34, 36">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Stock (Bundles)</label>
+                            <input type="number" id="p-stock" required min="0" placeholder="0">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Cost Price (₹)</label>
+                            <input type="number" id="p-cost" required min="0" step="0.01" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Selling Price (₹)</label>
+                            <input type="number" id="p-price" required min="0" step="0.01" placeholder="0.00">
+                        </div>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('product-modal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Save Article</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ORDER MODAL -->
+    <div id="order-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Create New Order</h3>
+                <button class="close-btn" onclick="app.closeModal('order-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="order-form" onsubmit="app.handleOrderSubmit(event)">
+                    <div class="form-group">
+                        <label>Client Name</label>
+                        <input type="text" id="o-client" required placeholder="Client / Company Name">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Select Product</label>
+                        <select id="o-product-select" onchange="app.updateOrderPricePreview()">
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Quantity (Bundles)</label>
+                            <input type="number" id="o-quantity" required min="1" value="1"
+                                onchange="app.updateOrderPricePreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>Total Estimate</label>
+                            <input type="text" id="o-total-preview" disabled value="₹0.00">
+                        </div>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('order-modal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Confirm Order</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- WASHING MODAL -->
+    <div id="washing-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Send Bundles to Washing</h3>
+                <button class="close-btn" onclick="app.closeModal('washing-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="washing-form" onsubmit="app.handleWashingSubmit(event)">
+                    <div class="form-group">
+                        <label>Select Product</label>
+                        <select id="w-product-select" required>
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Bundles to Send</label>
+                        <input type="number" id="w-quantity" required min="1" placeholder="Number of bundles">
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('washing-modal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Send to Washing</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- TRANSACTION MODAL (Income/Expense) -->
+    <div id="transaction-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="transaction-modal-title">Add Transaction</h3>
+                <button class="close-btn" onclick="app.closeModal('transaction-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="transaction-form" onsubmit="app.handleTransactionSubmit(event)">
+                    <input type="hidden" id="txn-type">
+
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="txn-category" required>
+                            <!-- Populated by JS based on type -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Amount (₹)</label>
+                        <input type="number" id="txn-amount" required min="0" step="0.01" placeholder="0.00">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="txn-description" rows="3" placeholder="Enter details..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="txn-date" required>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('transaction-modal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Save Transaction</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- WASTAGE MODAL -->
+    <div id="wastage-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Record Product Wastage</h3>
+                <button class="close-btn" onclick="app.closeModal('wastage-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="wastage-form" onsubmit="app.handleWastageSubmit(event)">
+                    <div class="form-group">
+                        <label>Select Product</label>
+                        <select id="wastage-product-select" required>
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Bundles Wasted</label>
+                        <input type="number" id="wastage-quantity" required min="1" placeholder="Number of bundles">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Reason for Wastage</label>
+                        <select id="wastage-reason" required>
+                            <option value="Damaged">Damaged in Storage</option>
+                            <option value="Quality Issues">Quality Issues</option>
+                            <option value="Washing Damage">Washing Damage</option>
+                            <option value="Expired/Outdated">Expired/Outdated</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Additional Notes</label>
+                        <textarea id="wastage-notes" rows="2" placeholder="Optional details..."></textarea>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('wastage-modal')">Cancel</button>
+                        <button type="submit" class="danger-btn">Record Wastage</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLIENT MODAL -->
+    <div id="client-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="client-modal-title">Add New Client</h3>
+                <button class="close-btn" onclick="app.closeModal('client-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="client-form" onsubmit="app.handleClientSubmit(event)">
+                    <input type="hidden" id="c-id">
+                    <div class="form-group">
+                        <label>Client / Company Name</label>
+                        <input type="text" id="c-name" required placeholder="Enter name">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Contact Phone</label>
+                            <input type="text" id="c-phone" placeholder="+91 ...">
+                        </div>
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" id="c-email" placeholder="client@example.com">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Shipping Address</label>
+                        <textarea id="c-address" rows="3" placeholder="Full address details..."></textarea>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('client-modal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Save Client</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- INVOICE OVERLAY -->
+    <div id="invoice-overlay" class="modal-overlay hidden">
+        <div class="invoice-container">
+            <div class="invoice-actions no-print">
+                <button class="secondary-btn" onclick="app.closeModal('invoice-overlay')"><i
+                        class="ph ph-arrow-left"></i> Back</button>
+                <button class="primary-btn" onclick="window.print()"><i class="ph ph-printer"></i> Print / Save
+                    PDF</button>
+            </div>
+            <div class="invoice-paper" id="invoice-paper">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- CONFIRMATION MODAL -->
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal confirm-modal">
+            <div class="modal-header">
+                <h3 id="confirm-title">Confirm Action</h3>
+                <button class="close-btn" onclick="app.closeModal('confirm-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message" style="margin-bottom: 2rem; color: var(--text-main); line-height: 1.6;"></p>
+                <div class="modal-actions" style="justify-content: flex-end;">
+                    <button type="button" class="secondary-btn"
+                        onclick="app.closeModal('confirm-modal')">Cancel</button>
+                    <button type="button" class="primary-btn" id="confirm-btn">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAYMENT VERIFICATION MODAL -->
+    <div id="payment-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Verify Payment</h3>
+                <button class="close-btn" onclick="app.closeModal('payment-modal')"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="payment-form" onsubmit="app.handlePaymentVerification(event)">
+                    <input type="hidden" id="pay-order-id">
+
+                    <div class="order-summary-box" id="pay-order-summary"
+                        style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="form-group">
+                        <label>Payment Method</label>
+                        <select id="pay-method" required>
+                            <option value="Online">Online / Bank Transfer</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Cheque">Cheque</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Transaction ID / Reference (or 'Cash')</label>
+                        <input type="text" id="pay-ref" required placeholder="Enter Payment ID or Notes">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Date Received</label>
+                        <input type="date" id="pay-date" required>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn"
+                            onclick="app.closeModal('payment-modal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Verify & Record Profit</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
