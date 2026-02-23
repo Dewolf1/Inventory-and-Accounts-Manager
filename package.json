@@ -1,0 +1,10 @@
+{
+    "name": "spy-garments",
+    "version": "1.0.0",
+    "description": "Spy Garments Wholesale System",
+    "scripts": {
+        "backend": "cd backend && npm start",
+        "frontend": "npx -y live-server --port=5000 --no-browser --ignore=\"**/*.db*,backend/node_modules/**\" .",
+        "start": "npx -y concurrently \"npm run backend\" \"npm run frontend\""
+    }
+}

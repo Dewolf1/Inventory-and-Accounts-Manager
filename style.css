@@ -29,6 +29,18 @@
     --glass: blur(12px);
 }
 
+.light-mode {
+    --bg-dark: #f8fafc;
+    --bg-sidebar: #ffffff;
+    --bg-card: rgba(255, 255, 255, 0.8);
+    --bg-card-hover: rgba(241, 245, 249, 1);
+    
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    
+    --border: rgba(0, 0, 0, 0.1);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -245,6 +257,7 @@ body {
     font-weight: 700;
     letter-spacing: 0.5px;
     background: linear-gradient(to right, #fff, #94a3b8);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -451,7 +464,7 @@ body {
 /* Dashboard Cards */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 1.5rem;
     margin-bottom: 2rem;
 }
@@ -1115,4 +1128,200 @@ body {
 .chart-slide canvas {
     width: 100% !important;
     height: 100% !important;
+}
+
+/* Manufacturing & Wholesaler Styles */
+.tabs-container {
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.tabs {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 1rem 0;
+    font-family: var(--font-main);
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+}
+
+.tab-btn.active {
+    color: var(--primary);
+}
+
+.tab-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+/* Manufacturing Pipeline Visuals */
+.pipeline-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 400px;
+    padding: 0.5rem 0;
+    position: relative;
+}
+
+.pipeline-line {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    z-index: 1;
+    transform: translateY(-50%);
+}
+
+.pipeline-line-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: var(--primary);
+    transition: width 0.5s ease;
+}
+
+.pipeline-step {
+    position: relative;
+    z-index: 2;
+    background: var(--bg-main);
+    padding: 0 4px;
+}
+
+.step-ring {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--bg-main);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.pipeline-step.completed .step-ring {
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+    transform: scale(0.9);
+}
+
+.pipeline-step.active .step-ring {
+    border-color: var(--primary);
+    background: var(--bg-main);
+    box-shadow: 0 0 10px var(--primary-glow);
+    animation: step-pulse 1.5s infinite;
+}
+
+.pipeline-step.active .step-ring::after {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--primary);
+}
+
+.step-label {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    white-space: nowrap;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.pipeline-step.active .step-label {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.pipeline-step.completed .step-label {
+    color: var(--text-main);
+}
+
+@keyframes step-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4);
+    }
+
+    70% {
+        box-shadow: 0 0 0 8px rgba(79, 70, 229, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
+    }
+}
+
+.step-preview-box {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.step-preview-box strong {
+    font-size: 20px;
+    color: var(--primary);
+}
+
+/* Manufacturing History Timeline */
+.history-timeline {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px 5px;
+}
+
+.history-item {
+    position: relative;
+    padding-left: 1.5rem;
+    margin-bottom: 2rem;
+    border-left: 2px solid var(--primary);
+    transition: all 0.3s ease;
+}
+
+.history-item::before {
+    content: '';
+    position: absolute;
+    left: -7px;
+    top: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.history-item:last-child {
+    margin-bottom: 0;
+}
+
+.sub-view.hidden {
+    display: none;
 }

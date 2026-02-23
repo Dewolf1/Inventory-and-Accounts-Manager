@@ -1,60 +1,58 @@
-# Spy Garments Backend
+# Spy Garments Wholesale System
 
-This is the Node.js backend for the Spy Garments Inventory System.
+A premium, all-in-one manufacturing and inventory management suite for garment businesses.
 
-## Features
-- **Product Management**: CRUD operations for inventory items.
-- **Payment Verification**: Dedicated workflow for verifying order payments and recording income.
-- **Financial Ledger**: Automatic tracking of revenue, expenses, and wastage.
-- **Dedicated Database**: Uses SQLite for persistent storage of products, orders, clients, and ledger transactions.
-- **Mock Authentication**: Simple admin login for local testing.
-- **Persistent Storage**: Data is saved in `spy_garments.db`.
+## Quick Start
 
-## Setup Instructions
+To launch the entire application (Backend + Frontend), run:
 
-1.  **Prerequisites**: Ensure you have Node.js and npm installed (see `requirements.txt`).
-2.  **Installation**:
-    ```bash
-    cd backend
-    npm install
-    ```
-3.  **Running the Server**:
-    ```bash
-    npm start
-    ```
-    The server will run at `http://localhost:3000`.
+```bash
+npm start
+```
 
-## API Endpoints
+- **Dashboard**: [http://localhost:5000](http://localhost:5000)
+- **API Server**: [http://localhost:3000](http://localhost:3000)
 
-### Authentication
-- `POST /api/login`: 
-    - Body: `{ "username": "admin", "password": "admin123" }`
-    - Response: `{ "token": "...", "user": { ... } }`
+## Core Modules
 
-### Clients
-- `GET /api/clients`: Retrieve all clients.
-- `POST /api/clients`: Add a new client.
-- `PUT /api/clients/:id`: Update a client.
-- `DELETE /api/clients/:id`: Remove a client.
+### 1. Manufacturing Pipeline
+Track items through a multi-step production workflow:
+`Cutting` → `Stitching` → `Kaj` → `Washing` → `Packing`
 
-### Orders
-- `GET /api/orders`: Retrieve all orders.
-- `POST /api/orders`: Create a new order.
-- `PUT /api/orders/:id`: Update order status.
-- `DELETE /api/orders/:id`: Remove an order.
-- `POST /api/orders/:id/verify`: Verify payment for an order and record in ledger.
-    - Body: `{ "paymentMethod": "...", "paymentRef": "...", "paymentDate": "..." }`
+- **Visual Step-Pipeline**: Real-time horizontal progress tracking.
+- **Wastage Management**: Record losses at each stage with direct ledger impact.
+- **Auto-Inventory**: Completed lots are automatically converted into saleable articles.
 
-### Washing
-- `GET /api/washing`: Retrieve all washing batches.
-- `POST /api/washing`: Create a new batch.
-- `PUT /api/washing/:id`: Update batch status.
-- `DELETE /api/washing/:id`: Remove a batch.
+### 2. Wholesaler & Debt Tracker
+- **Cloth Management**: Log raw material receipts from wholesalers.
+- **Total Payables**: Monitor exact money owed to suppliers directly from the dashboard.
+- **Individual Balances**: Track detailed debt profiles for every wholesaler.
 
-### Ledger
-- `GET /api/ledger`: Retrieve all financial transactions.
-- `POST /api/ledger`: Add a transaction (income/expense/wastage).
-- `DELETE /api/ledger/:id`: Remove a transaction.
+### 3. Client & Revenue Hub
+- **Interactive Profiles**: Detailed transaction and invoice history for every client.
+- **Receivables Tracking**: Monitor pending payments from sales.
+- **Linked Accounts**: All sales and payments are automatically synced to the primary company ledger.
 
-## Data Structure
-The application uses **SQLite** with tables for `products`, `clients`, `orders`, `washing_batches`, and `ledger_transactions`.
+---
+
+## Database Structure & Flow
+
+The system uses a relational SQLite database (`spy_garments.db`) to manage the business lifecycle:
+
+### Core Tables
+- **Clients & Wholesalers**: Direct contact and balance management.
+- **Cloth Inventory**: Raw materials tracking linked to wholesalers.
+- **Manufacturing Lots**: Work-in-progress (WIP) pipeline from cutting to packing.
+- **Products**: Finished goods ready for wholesale.
+- **Orders**: Sales transactions linked to clients and products.
+- **Ledger Transactions**: The central financial hub recording all income (sales), expenses (purchases), and wastage.
+
+### Application Flow
+1. **Raw Material**: Purchase cloth from **Wholesalers**.
+2. **Production**: Start a **Manufacturing Lot** using cloth. Track pieces and wastage through the pipeline.
+3. **Inventory**: Finished lots automatically move to **Products** stock.
+4. **Sales**: Create **Orders** for **Clients**. This reduces stock and creates a pending bill.
+5. **Accounting**: Verify payments for orders. This clears client balance and logs **Income** in the **Ledger**.
+
+---
+Built with Node.js, Express, and Vanilla JS.
