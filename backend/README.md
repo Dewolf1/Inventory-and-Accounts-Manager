@@ -2,8 +2,25 @@
 
 This is the Node.js backend for the Spy Garments Inventory System.
 
-## Features
-- **Product Management**: CRUD operations for inventory items.
+## How to Run the Application
+
+To launch both the Backend and Frontend simultaneously, run the following command from the root directory:
+
+```bash
+npm start
+```
+
+- **Frontend**: Available at [http://localhost:5000](http://localhost:5000)
+- **Backend API**: Running on [http://localhost:3000](http://localhost:3000)
+
+> [!NOTE]
+> The application will automatically serve the UI and start the SQLite database backend.
+
+## Key Features
+- **Manufacturing Workflow**: track pieces through Cutting, Stitching, Kaj, Washing, and Packing.
+- **Wholesaler Management**: Maintain raw cloth inventory and track payments/debts.
+- **Client Profiles**: Dedicated dashboards for client order history and ledgers.
+- **Automated Accounts**: Real-time stats for Receivables and Payables.
 - **Payment Verification**: Dedicated workflow for verifying order payments and recording income.
 - **Financial Ledger**: Automatic tracking of revenue, expenses, and wastage.
 - **Dedicated Database**: Uses SQLite for persistent storage of products, orders, clients, and ledger transactions.

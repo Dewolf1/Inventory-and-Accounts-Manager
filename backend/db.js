@@ -53,7 +53,75 @@ function initializeDatabase() {
             FOREIGN KEY (product_id) REFERENCES products(id)
         )`);
 
-        // Washing Batches Table
+        // Cloth Wholesalers Table
+        db.run(`CREATE TABLE IF NOT EXISTS cloth_wholesalers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            email TEXT,
+            address TEXT
+        )`);
+
+        // Cloth Inventory Table
+        db.run(`CREATE TABLE IF NOT EXISTS cloth_inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wholesaler_id INTEGER,
+            cloth_type TEXT NOT NULL,
+            quantity REAL NOT NULL, -- in meters or pieces depending on unit
+            unit TEXT DEFAULT 'meters',
+            price_per_unit REAL NOT NULL,
+            total_cost REAL NOT NULL,
+            date_received TEXT NOT NULL,
+            notes TEXT,
+            FOREIGN KEY (wholesaler_id) REFERENCES cloth_wholesalers(id)
+        )`);
+
+        // Manufacturing Lots Table
+        db.run(`CREATE TABLE IF NOT EXISTS manufacturing_lots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_number TEXT UNIQUE NOT NULL,
+            cloth_inventory_id INTEGER,
+            current_step TEXT DEFAULT 'Cutting', -- Cutting, Stitching, Kaj, Washing, Packing, Completed
+            status TEXT DEFAULT 'Active', -- Active, Completed, Cancelled
+            initial_pieces INTEGER NOT NULL,
+            current_pieces INTEGER NOT NULL,
+            total_wastage INTEGER DEFAULT 0,
+            unit_cost REAL,
+            created_at TEXT NOT NULL,
+            finished_at TEXT,
+            FOREIGN KEY (cloth_inventory_id) REFERENCES cloth_inventory(id)
+        )`);
+
+        // Manufacturing History/Steps Table
+        db.run(`CREATE TABLE IF NOT EXISTS manufacturing_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_id INTEGER,
+            step_name TEXT NOT NULL,
+            wastage INTEGER DEFAULT 0,
+            comments TEXT,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (lot_id) REFERENCES manufacturing_lots(id)
+        )`);
+
+        // Ledger Transactions Table
+        db.run(`CREATE TABLE IF NOT EXISTS ledger_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL, -- income, expense (payment to wholesaler), wastage
+            category TEXT,
+            amount REAL NOT NULL,
+            description TEXT,
+            date TEXT NOT NULL,
+            order_id INTEGER, -- Optional link to orders
+            wholesaler_id INTEGER, -- Optional link to wholesaler payments
+            lot_id INTEGER, -- Optional link to manufacturing wastage
+            client_id INTEGER, -- Optional link to client payments
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (wholesaler_id) REFERENCES cloth_wholesalers(id),
+            FOREIGN KEY (client_id) REFERENCES clients(id),
+            FOREIGN KEY (lot_id) REFERENCES manufacturing_lots(id)
+        )`);
+
+        // Legacy Washing Batches Table (Keeping for compatibility for now)
         db.run(`CREATE TABLE IF NOT EXISTS washing_batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_id INTEGER,
@@ -63,20 +131,8 @@ function initializeDatabase() {
             FOREIGN KEY (product_id) REFERENCES products(id)
         )`);
 
-        // Ledger Transactions Table
-        db.run(`CREATE TABLE IF NOT EXISTS ledger_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL, -- income, expense, wastage
-            category TEXT,
-            amount REAL NOT NULL,
-            description TEXT,
-            date TEXT NOT NULL,
-            order_id INTEGER, -- Optional link to orders
-            FOREIGN KEY (order_id) REFERENCES orders(id)
-        )`);
-
         console.log('Database tables initialized.');
     });
 }
 
-module.exports = db;
+module.exports = { db, initializeDatabase };

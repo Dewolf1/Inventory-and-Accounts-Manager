@@ -8,9 +8,11 @@ const app = {
     data: {
         products: [],
         orders: [],
-        washingBatches: [],
         ledgerTransactions: [],
         clients: [],
+        wholesalers: [],
+        clothInventory: [],
+        manufacturingLots: [],
         categories: ['Regular Fit', 'Slim Fit', 'Straight Fit', 'Skinny Fit', 'Relaxed Fit', 'Tapered Fit']
     },
 
@@ -26,6 +28,11 @@ const app = {
 
     // Initialize the Application
     async init() {
+        // Load theme from local storage
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light-mode');
+        }
+
         // Loading Screen Animation
         setTimeout(() => {
             const loader = document.getElementById('loading-screen');
@@ -44,19 +51,23 @@ const app = {
 
     async loadAllData() {
         try {
-            const [products, orders, washing, ledger, clients] = await Promise.all([
+            const [products, orders, ledger, clients, wholesalers, cloth, manufacturing] = await Promise.all([
                 fetch(`${this.API_URL}/products`).then(r => r.json()),
                 fetch(`${this.API_URL}/orders`).then(r => r.json()),
-                fetch(`${this.API_URL}/washing`).then(r => r.json()),
                 fetch(`${this.API_URL}/ledger`).then(r => r.json()),
-                fetch(`${this.API_URL}/clients`).then(r => r.json())
+                fetch(`${this.API_URL}/clients`).then(r => r.json()),
+                fetch(`${this.API_URL}/wholesalers`).then(r => r.json()),
+                fetch(`${this.API_URL}/cloth-inventory`).then(r => r.json()),
+                fetch(`${this.API_URL}/manufacturing`).then(r => r.json())
             ]);
 
             this.data.products = products;
             this.data.orders = orders;
-            this.data.washingBatches = washing;
             this.data.ledgerTransactions = ledger;
             this.data.clients = clients;
+            this.data.wholesalers = wholesalers;
+            this.data.clothInventory = cloth;
+            this.data.manufacturingLots = manufacturing;
 
             this.updateUI();
         } catch (e) {
@@ -135,42 +146,97 @@ const app = {
     // --- Data Logic (Handled by Backend) ---
     seedData() { /* Handled by DB initialization */ },
     saveData() { this.updateUI(); },
-    resetData() { /* Handled by clearing DB manually if needed */ },
+    toggleTheme() {
+        document.body.classList.toggle('light-mode');
+        if (document.body.classList.contains('light-mode')) {
+            localStorage.setItem('theme', 'light');
+        } else {
+            localStorage.setItem('theme', 'dark');
+        }
+    },
+
+    resetData() {
+        this.showConfirm({
+            title: 'Critical Warning: Reset System',
+            message: 'Are you absolutely sure you want to delete ALL data? This will wipe Products, Orders, Clients, Ledger, and Washing records permanently. This action CANNOT be undone.',
+            confirmText: 'YES, DELETE ALL DATA',
+            onConfirm: async () => {
+                try {
+                    const resp = await fetch(`${this.API_URL}/reset`, { method: 'DELETE' });
+                    if (resp.ok) {
+                        await this.loadAllData();
+                        alert('System data has been completely reset.');
+                        this.navigate('dashboard');
+                    } else {
+                        alert('Failed to reset system data.');
+                    }
+                } catch (e) {
+                    console.error('Reset error:', e);
+                }
+            }
+        });
+    },
 
     // --- UI Rendering ---
 
     updateUI() {
         if (!this.isAuthenticated) return;
+
+        // Stats are always needed for dashboard metrics
         this.renderStats();
-        this.renderInventory();
-        this.renderWashing();
-        this.renderOrders();
-        this.renderLedger();
-        this.renderClients();
+
+        // Re-render only the currently active view
+        if (this.currentView === 'inventory') this.renderInventory();
+        if (this.currentView === 'manufacturing') this.renderManufacturing();
+        if (this.currentView === 'wholesalers') this.renderWholesalers();
+        if (this.currentView === 'accounts') this.renderLedger();
+        if (this.currentView === 'orders') this.renderOrders();
+        if (this.currentView === 'clients') this.renderClients();
+        if (this.currentView === 'client-details') this.openClientDetails(this.activeClientId);
+
         this.updateChart();
         this.renderActivityLog();
         this.checkNotifications();
     },
 
     renderStats() {
-        const totalBundles = this.data.products.reduce((acc, curr) => acc + curr.stock, 0);
-        const lowStock = this.data.products.filter(p => p.stock < 20).length;
+        const totalInventoryPieces = this.data.products.reduce((acc, curr) => acc + curr.stock, 0);
+        const totalManufacturingPieces = this.data.manufacturingLots
+            .filter(l => l.status === 'Active')
+            .reduce((acc, curr) => acc + curr.current_pieces, 0);
+
+        const lowStock = this.data.products.filter(p => p.stock < 10).length;
         const totalValue = this.data.products.reduce((acc, curr) => acc + (curr.stock * curr.price), 0);
 
-        // Calculate Receivables (Total unpaid order value)
-        const receivables = this.data.orders
-            .filter(o => o.paymentStatus === 'Unpaid')
-            .reduce((sum, o) => sum + o.total, 0);
+        // Calculate Receivables (Sum of all client balances)
+        let totalReceivables = 0;
+        this.data.clients.forEach(client => {
+            const billed = this.data.orders
+                .filter(o => o.clientId == client.id)
+                .reduce((sum, o) => sum + o.total, 0);
+            const paid = this.data.ledgerTransactions
+                .filter(l => l.clientId == client.id && l.type === 'income')
+                .reduce((sum, l) => sum + l.amount, 0);
+            totalReceivables += Math.max(0, billed - paid);
+        });
 
-        document.getElementById('dash-total-products').innerText = totalBundles;
+        // Calculate Cloth Payables (Debt)
+        const totalClothCost = this.data.clothInventory.reduce((sum, item) => sum + (item.total_cost || 0), 0);
+        const totalWhPayments = this.data.ledgerTransactions
+            .filter(l => l.wholesaler_id && l.type === 'expense')
+            .reduce((sum, l) => sum + (l.amount || 0), 0);
+        const clothPayables = totalClothCost - totalWhPayments;
+
+        document.getElementById('dash-wip-pieces').innerText = totalManufacturingPieces;
+        document.getElementById('dash-total-products').innerText = totalInventoryPieces;
         document.getElementById('dash-low-stock').innerText = lowStock;
         document.getElementById('dash-total-value').innerText = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(totalValue);
 
-        // Inject receivables if element exists or just log
-        const receivablesEl = document.getElementById('dash-receivables');
-        if (receivablesEl) {
-            receivablesEl.innerText = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(receivables);
-        }
+        const recEl = document.getElementById('dash-receivables');
+        if (recEl) recEl.innerText = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(totalReceivables);
+
+        const payEl = document.getElementById('dash-payables');
+        if (payEl) payEl.innerText = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Math.max(0, clothPayables));
     },
 
     renderInventory(filteredData = null) {
@@ -203,7 +269,6 @@ const app = {
                 <td>${product.category}</td>
                 <td>${product.stock}</td>
                 <td>₹${Number(product.price).toFixed(2)}</td>
-                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                 <td>
                     <button class="action-btn" onclick="app.editProduct('${product.id}')"><i class="ph ph-pencil-simple"></i></button>
                     <button class="action-btn delete" onclick="app.deleteProduct('${product.id}')"><i class="ph ph-trash"></i></button>
@@ -213,82 +278,145 @@ const app = {
         });
     },
 
-    renderOrders() {
-        const tbody = document.getElementById('orders-table-body');
+    renderManufacturing() {
+        const tbody = document.getElementById('manufacturing-table-body');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
-        if (this.data.orders.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 2rem;">No active orders found.</td></tr>';
+        if (this.data.manufacturingLots.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 2rem;">No manufacturing lots found.</td></tr>';
             return;
         }
 
-        const sortedOrders = [...this.data.orders].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const steps = ['Cutting', 'Stitching', 'Kaj', 'Washing', 'Packing'];
 
-        sortedOrders.forEach(order => {
+        this.data.manufacturingLots.forEach(lot => {
             const tr = document.createElement('tr');
+            const currentIdx = steps.indexOf(lot.current_step);
 
-            const product = this.data.products.find(p => p.id == order.productId);
-            const productName = product ? product.name : 'Unknown Product';
+            // Calculate progress line fill
+            // If completed, 100%. Otherwise, fill up to the active step.
+            let fillWidth = 0;
+            if (lot.status === 'Completed') {
+                fillWidth = 100;
+            } else if (currentIdx !== -1) {
+                fillWidth = (currentIdx / (steps.length - 1)) * 100;
+            }
 
-            const client = this.data.clients.find(c => c.id == order.clientId);
-            const clientName = client ? client.name : 'Unknown Client';
+            const pipelineHtml = `
+                <div class="pipeline-container">
+                    <div class="pipeline-line">
+                        <div class="pipeline-line-fill" style="width: ${fillWidth}%"></div>
+                    </div>
+                    ${steps.map((s, idx) => {
+                let statusClass = '';
+                if (lot.status === 'Completed' || idx < currentIdx) statusClass = 'completed';
+                else if (idx === currentIdx && lot.status === 'Active') statusClass = 'active';
+
+                return `
+                            <div class="pipeline-step ${statusClass}">
+                                <div class="step-ring" title="${s}"></div>
+                                <span class="step-label">${s}</span>
+                            </div>
+                        `;
+            }).join('')}
+                </div>
+            `;
 
             tr.innerHTML = `
-                <td style="font-family: monospace;">#${order.id.toString().slice(-4)}</td>
-                <td style="font-weight:500; color:white;">${clientName}</td>
-                <td>${order.quantity} x ${productName}</td>
-                <td>₹${Number(order.total).toFixed(2)}</td>
-                <td>${new Date(order.date).toLocaleDateString()}</td>
-                <td><span class="status-badge ${this.getOrderStatusClass(order.status)}">${order.status}</span></td>
+                <td style="font-weight: 500; color: white; font-family: monospace;">${lot.lot_number}</td>
+                <td>${pipelineHtml}</td>
                 <td>
-                    <span class="status-badge ${order.paymentStatus === 'Paid' ? 'instock' : 'outstock'}">
-                        ${order.paymentStatus}
-                    </span>
+                    <div style="font-weight: 600; color: var(--primary);">${lot.current_pieces}</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">of ${lot.initial_pieces}</div>
                 </td>
+                <td><span style="color: var(--accent-red); font-weight: 600;">-${lot.total_wastage}</span></td>
                 <td>
-                    <button class="action-btn" onclick="app.viewInvoice('${order.id}')" title="View Invoice"><i class="ph ph-file-text"></i></button>
-                    ${order.status === 'Pending' ? `<button class="action-btn" onclick="app.completeOrder('${order.id}')" title="Mark Complete"><i class="ph ph-check"></i></button>` : ''}
-                    ${order.paymentStatus === 'Unpaid' ? `<button class="action-btn" style="color:#fbbf24" onclick="app.openPaymentModal('${order.id}')" title="Verify Payment"><i class="ph ph-currency-inr"></i></button>` : ''}
-                    <button class="action-btn delete" onclick="app.deleteOrder('${order.id}')" title="Delete Order"><i class="ph ph-trash"></i></button>
+                    <button class="action-btn" onclick="app.viewLotHistory('${lot.id}')" title="View History"><i class="ph ph-clock-counter-clockwise"></i></button>
+                    ${lot.status === 'Active' && lot.current_step !== 'Completed' ?
+                    `<button class="action-btn" onclick="app.openStepModal('${lot.id}')" title="Next Step"><i class="ph ph-arrow-circle-right"></i></button>` : ''}
+                    ${lot.current_step === 'Packing' && lot.status === 'Active' ?
+                    `<button class="action-btn" style="color: var(--accent-green);" onclick="app.openFinishLotModal('${lot.id}')" title="Send to Inventory"><i class="ph ph-check-square"></i></button>` : ''}
+                    <button class="action-btn delete" onclick="app.deleteLot('${lot.id}')"><i class="ph ph-trash"></i></button>
                 </td>
-             `;
+            `;
             tbody.appendChild(tr);
         });
     },
 
-    renderWashing() {
-        const tbody = document.getElementById('washing-table-body');
+    renderWholesalers() {
+        const tbody = document.getElementById('wholesalers-table-body');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
-        if (this.data.washingBatches.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;">No bundles in washing.</td></tr>';
+        if (this.data.wholesalers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 2rem;">No wholesalers recorded.</td></tr>';
             return;
         }
 
-        const sortedWashing = [...this.data.washingBatches].sort((a, b) => new Date(b.sentDate) - new Date(a.sentDate));
+        this.data.wholesalers.forEach(wh => {
+            const purchases = this.data.clothInventory.filter(c => c.wholesaler_id == wh.id);
+            const totalValue = purchases.reduce((sum, p) => sum + p.total_cost, 0);
 
-        sortedWashing.forEach(batch => {
+            const totalPaid = this.data.ledgerTransactions
+                .filter(l => l.wholesaler_id == wh.id && l.type === 'expense')
+                .reduce((sum, l) => sum + (l.amount || 0), 0);
+
+            const balance = totalValue - totalPaid;
+
             const tr = document.createElement('tr');
-
-            const product = this.data.products.find(p => p.id === batch.productId);
-            const productName = product ? product.name : 'Unknown Product';
-            const productSku = product ? product.sku : 'N/A';
-
             tr.innerHTML = `
-                <td style="font-family: monospace;">#W${batch.id.toString().slice(-4)}</td>
-                <td style="font-weight:500; color:white;">${productName}</td>
-                <td style="font-family: monospace;">${productSku}</td>
-                <td>${batch.quantity}</td>
-                <td>${new Date(batch.sentDate).toLocaleDateString()}</td>
-                <td><span class="status-badge ${batch.status === 'In Washing' ? 'lowstock' : 'instock'}">${batch.status}</span></td>
+                <td style="font-weight:500; color:white;">${wh.name}</td>
                 <td>
-                    ${batch.status === 'In Washing' ? `<button class="action-btn" onclick="app.markWashingDelivered('${batch.id}')" title="Mark Delivered"><i class="ph ph-check-circle"></i></button>` : ''}
-                    <button class="action-btn delete" onclick="app.deleteWashingBatch('${batch.id}')"><i class="ph ph-trash"></i></button>
+                    <div>${wh.phone || '-'}</div>
+                    <div style="font-size:12px; color:var(--text-muted)">${wh.email || '-'}</div>
                 </td>
-             `;
+                <td style="max-width:200px; font-size:13px;">${wh.address || '-'}</td>
+                <td>₹${totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                <td style="color: ${balance > 0 ? '#ef4444' : '#4ade80'}; font-weight: 600;">₹${balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                <td>
+                    <button class="action-btn" onclick="app.editWholesaler('${wh.id}')"><i class="ph ph-pencil-simple"></i></button>
+                    <button class="action-btn" onclick="app.openWholesalerPaymentModal('${wh.id}')" title="Make Payment"><i class="ph ph-currency-inr"></i></button>
+                    <button class="action-btn delete" onclick="app.deleteWholesaler('${wh.id}')"><i class="ph ph-trash"></i></button>
+                </td>
+            `;
             tbody.appendChild(tr);
         });
     },
+
+    renderClothInventory() {
+        const tbody = document.getElementById('cloth-inventory-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (this.data.clothInventory.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">No cloth receipts found.</td></tr>';
+            return;
+        }
+
+        this.data.clothInventory.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${new Date(item.date_received).toLocaleDateString()}</td>
+                <td style="font-weight: 500; color: white;">${item.cloth_type}</td>
+                <td>${item.wholesaler_name || 'Unknown'}</td>
+                <td>${item.quantity} ${item.unit}</td>
+                <td>₹${Number(item.total_cost).toLocaleString('en-IN')}</td>
+                <td>
+                    <button class="action-btn delete" onclick="app.deleteClothItem('${item.id}')"><i class="ph ph-trash"></i></button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    },
+
+    switchSubTab(view, tab) {
+        document.querySelectorAll(`#view-${view} .sub-view`).forEach(el => el.classList.add('hidden'));
+        document.getElementById(`${view}-${tab}-tab`).classList.remove('hidden');
+        document.querySelectorAll(`#view-${view} .tab-btn`).forEach(btn => btn.classList.remove('active'));
+        event.currentTarget.classList.add('active');
+    },
+
 
     getOrderStatusClass(status) {
         if (status === 'Completed') return 'instock';
@@ -399,13 +527,18 @@ const app = {
         this.data.clients.forEach(client => {
             const clientOrders = this.data.orders.filter(o => o.clientId == client.id);
             const totalValue = clientOrders.reduce((sum, o) => sum + o.total, 0);
-            const owed = clientOrders
-                .filter(o => o.paymentStatus === 'Unpaid')
-                .reduce((sum, o) => sum + o.total, 0);
+
+            const totalPaid = this.data.ledgerTransactions
+                .filter(l => l.client_id == client.id && l.type === 'income')
+                .reduce((sum, l) => sum + l.amount, 0);
+
+            const balance = totalValue - totalPaid;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td style="font-weight:500; color:white;">${client.name}</td>
+                <td style="font-weight:500; color:white;">
+                    <a href="#" onclick="app.openClientDetails('${client.id}'); return false;" style="color: var(--primary); text-decoration: none; border-bottom: 1px dashed transparent; transition: all 0.2s;" onmouseover="this.style.borderBottomColor='var(--primary)'" onmouseout="this.style.borderBottomColor='transparent'">${client.name}</a>
+                </td>
                 <td>
                     <div>${client.phone || '-'}</div>
                     <div style="font-size:12px; color:var(--text-muted)">${client.email || '-'}</div>
@@ -413,10 +546,143 @@ const app = {
                 <td style="max-width:200px; font-size:13px;">${client.address || '-'}</td>
                 <td>${clientOrders.length}</td>
                 <td>₹${totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                <td style="color: ${owed > 0 ? '#ef4444' : '#4ade80'}; font-weight: 600;">₹${owed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                <td style="color: ${balance > 0 ? '#ef4444' : '#4ade80'}; font-weight: 600;">₹${balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 <td>
                     <button class="action-btn" onclick="app.editClient('${client.id}')"><i class="ph ph-pencil-simple"></i></button>
                     <button class="action-btn delete" onclick="app.deleteClient('${client.id}')"><i class="ph ph-trash"></i></button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    },
+
+    openClientDetails(clientId) {
+        const client = this.data.clients.find(c => c.id == clientId);
+        if (!client) return;
+
+        this.navigate('client-details');
+        document.getElementById('cd-client-name').innerText = client.name;
+        // Store current client ID for helper functions
+        this.activeClientId = clientId;
+
+        const clientOrders = this.data.orders.filter(o => o.clientId == clientId);
+        const totalBilled = clientOrders.reduce((sum, o) => sum + o.total, 0);
+
+        const clientPayments = this.data.ledgerTransactions.filter(l => l.client_id == clientId && l.type === 'income');
+        const totalPaid = clientPayments.reduce((sum, l) => sum + l.amount, 0);
+
+        const balance = totalBilled - totalPaid;
+
+        document.getElementById('cd-total-orders').innerText = clientOrders.length;
+        document.getElementById('cd-total-billing').innerText = `₹${totalBilled.toLocaleString('en-IN')}`;
+        document.getElementById('cd-balance').innerText = `₹${balance.toLocaleString('en-IN')}`;
+
+        // Color coding for balance
+        const balEl = document.getElementById('cd-balance');
+        if (balance > 0) {
+            balEl.style.color = '#ef4444'; // Red if owed
+        } else if (balance < 0) {
+            balEl.style.color = '#38bdf8'; // Blue if overpaid
+        } else {
+            balEl.style.color = '#4ade80'; // Green if clear
+        }
+
+        this.renderClientBills(clientOrders);
+        this.renderClientLedger(clientPayments);
+    },
+
+    openOrderFromClient() {
+        this.openOrderModal();
+        const client = this.data.clients.find(c => c.id == this.activeClientId);
+        if (client) {
+            document.getElementById('o-client').value = client.name;
+        }
+    },
+
+    openIncomeFromClient() {
+        this.openTransactionModal('income');
+        const client = this.data.clients.find(c => c.id == this.activeClientId);
+        if (client) {
+            document.getElementById('txn-description').value = `Payment from ${client.name}`;
+            document.getElementById('txn-category').value = 'Order Payment';
+            // We can add a hidden field or find a way to link it if needed,
+            // but for now the handleTransactionSubmit needs to know about client_id
+            this.incomeClientId = client.id;
+        }
+    },
+
+    renderClientBills(orders) {
+        const tbody = document.getElementById('cd-bills-table-body');
+        tbody.innerHTML = '';
+
+        if (orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 2rem;">No orders found for this client.</td></tr>';
+            return;
+        }
+
+        orders.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(o => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${new Date(o.date).toLocaleDateString()}</td>
+                <td style="font-family: monospace;">#${o.id.toString().slice(-4)}</td>
+                <td style="font-weight:600;">₹${o.total.toLocaleString('en-IN')}</td>
+                <td>
+                    ${o.paymentStatus === 'Paid' ?
+                    '<span class="status-badge instock">Paid</span>' :
+                    `<button class="action-btn" style="color: #4ade80;" onclick="app.openPaymentModal('${o.id}')" title="Pay Bill"><i class="ph ph-hand-coins"></i></button>`
+                }
+                    <button class="action-btn" onclick="app.viewInvoice('${o.id}')"><i class="ph ph-file-text"></i></button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    },
+
+    renderClientLedger(transactions) {
+        const tbody = document.getElementById('cd-ledger-table-body');
+        tbody.innerHTML = '';
+
+        if (transactions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 2rem;">No payment history found.</td></tr>';
+            return;
+        }
+
+        transactions.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(t => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${new Date(t.date).toLocaleDateString()}</td>
+                <td style="font-weight:600; color:#4ade80;">₹${t.amount.toLocaleString('en-IN')}</td>
+                <td>${t.category}</td>
+                <td style="font-size:12px;">${t.description || '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    },
+
+    renderOrders() {
+        const tbody = document.getElementById('orders-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (this.data.orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">No orders found.</td></tr>';
+            return;
+        }
+
+        this.data.orders.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(o => {
+            const client = this.data.clients.find(c => c.id == o.clientId);
+            const clientName = client ? client.name : 'Deleted Client';
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-family: monospace; font-weight: 500; color: white;">#${o.id.toString().slice(-6)}</td>
+                <td>${clientName}</td>
+                <td>${o.quantity} piezas</td>
+                <td style="font-weight: 600;">₹${o.total.toLocaleString('en-IN')}</td>
+                <td>${new Date(o.date).toLocaleDateString()}</td>
+                <td>
+                    <button class="action-btn" onclick="app.viewInvoice('${o.id}')" title="View Invoice"><i class="ph ph-file-text"></i></button>
+                    <button class="action-btn delete" onclick="app.deleteOrder('${o.id}')" title="Delete Order"><i class="ph ph-trash"></i></button>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -469,7 +735,7 @@ const app = {
     openAddModal() {
         document.getElementById('product-form').reset();
         document.getElementById('p-id').value = '';
-        document.getElementById('modal-title').innerText = 'Add New Article';
+        document.getElementById('modal-title').innerText = 'Add New Product';
         this.openModal('product-modal');
     },
 
@@ -488,7 +754,7 @@ const app = {
         document.getElementById('p-cost').value = product.costPrice || product.price * 0.7; // Fallback
         document.getElementById('p-price').value = product.price;
 
-        document.getElementById('modal-title').innerText = 'Edit Article';
+        document.getElementById('modal-title').innerText = 'Edit Product';
         this.openModal('product-modal');
     },
 
@@ -530,8 +796,8 @@ const app = {
 
     async deleteProduct(id) {
         this.showConfirm({
-            title: 'Delete Article',
-            message: 'Delete this article?',
+            title: 'Delete Product',
+            message: 'Delete this product and all its stock?',
             confirmText: 'Delete',
             onConfirm: async () => {
                 try {
@@ -578,7 +844,7 @@ const app = {
         const qty = parseInt(document.getElementById('o-quantity').value);
 
         if (product.stock < qty) {
-            alert('Not enough stock! Current stock: ' + product.stock + ' bundles.');
+            alert('Not enough stock! Current stock: ' + product.stock + ' pieces.');
             return;
         }
 
@@ -616,7 +882,11 @@ const app = {
 
                 await this.loadAllData();
                 this.closeModal('order-modal');
-                this.navigate('orders');
+                if (this.currentView === 'client-details' && this.activeClientId) {
+                    this.openClientDetails(this.activeClientId);
+                } else {
+                    this.navigate('clients');
+                }
             }
         } catch (e) {
             console.error(e);
@@ -658,92 +928,338 @@ const app = {
     openWashingModal() {
         const select = document.getElementById('w-product-select');
         select.innerHTML = this.data.products.map(p =>
-            `<option value="${p.id}" data-stock="${p.stock}">${p.name} (${p.sku}) - ${p.stock} bundles available</option>`
+            `<option value="${p.id}" data-stock="${p.stock}">${p.name} (${p.sku}) - ${p.stock} pieces available</option>`
         ).join('');
 
         document.getElementById('washing-form').reset();
         this.openModal('washing-modal');
     },
 
-    async handleWashingSubmit(e) {
-        e.preventDefault();
-        const productId = document.getElementById('w-product-select').value;
-        const product = this.data.products.find(p => p.id == productId);
-        const qty = parseInt(document.getElementById('w-quantity').value);
-
-        if (product.stock < qty) {
-            alert('Not enough stock! Current stock: ' + product.stock + ' bundles.');
-            return;
-        }
-
-        try {
-            // 1. Create washing batch
-            await fetch(`${this.API_URL}/washing`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    productId: productId,
-                    quantity: qty,
-                    sentDate: new Date().toISOString(),
-                    status: 'In Washing'
-                })
-            });
-
-            // 2. Deduct from inventory
-            await fetch(`${this.API_URL}/products/${productId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...product, stock: product.stock - qty })
-            });
-
-            await this.loadAllData();
-            this.closeModal('washing-modal');
-            this.navigate('washing');
-        } catch (e) {
-            console.error(e);
-        }
+    // --- Wholesaler Actions ---
+    openWholesalerModal() {
+        document.getElementById('wholesaler-form').reset();
+        document.getElementById('wh-id').value = '';
+        document.getElementById('wholesaler-modal-title').innerText = 'Add New Wholesaler';
+        this.openModal('wholesaler-modal');
     },
 
-    async markWashingDelivered(id) {
-        const batch = this.data.washingBatches.find(b => b.id == id);
-        if (!batch) return;
+    editWholesaler(id) {
+        const wh = this.data.wholesalers.find(w => w.id == id);
+        if (!wh) return;
+        document.getElementById('wh-id').value = wh.id;
+        document.getElementById('wh-name').value = wh.name;
+        document.getElementById('wh-phone').value = wh.phone || '';
+        document.getElementById('wh-email').value = wh.email || '';
+        document.getElementById('wh-address').value = wh.address || '';
+        document.getElementById('wholesaler-modal-title').innerText = 'Edit Wholesaler';
+        this.openModal('wholesaler-modal');
+    },
+
+    async handleWholesalerSubmit(e) {
+        e.preventDefault();
+        const id = document.getElementById('wh-id').value;
+        const data = {
+            name: document.getElementById('wh-name').value,
+            phone: document.getElementById('wh-phone').value,
+            email: document.getElementById('wh-email').value,
+            address: document.getElementById('wh-address').value
+        };
 
         try {
-            // 1. Add back to inventory
-            const product = this.data.products.find(p => p.id == batch.productId);
-            if (product) {
-                await fetch(`${this.API_URL}/products/${product.id}`, {
-                    method: 'PUT',
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `${this.API_URL}/wholesalers/${id}` : `${this.API_URL}/wholesalers`;
+            const resp = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (resp.ok) {
+                await this.loadAllData();
+                this.closeModal('wholesaler-modal');
+            }
+        } catch (e) { console.error(e); }
+    },
+
+    async deleteWholesaler(id) {
+        this.showConfirm({
+            title: 'Delete Wholesaler',
+            message: 'Are you sure? This will not delete historical purchases.',
+            confirmText: 'Delete',
+            onConfirm: async () => {
+                await fetch(`${this.API_URL}/wholesalers/${id}`, { method: 'DELETE' });
+                this.loadAllData();
+            }
+        });
+    },
+
+    openWholesalerPaymentModal(id) {
+        const wh = this.data.wholesalers.find(w => w.id == id);
+        if (!wh) return;
+        document.getElementById('wp-wholesaler-id').value = wh.id;
+        document.getElementById('wp-wholesaler-name').value = wh.name;
+        document.getElementById('wp-amount').value = '';
+        document.getElementById('wp-date').valueAsDate = new Date();
+        document.getElementById('wp-notes').value = '';
+        this.openModal('wholesaler-payment-modal');
+    },
+
+    async handleWholesalerPaymentSubmit(e) {
+        e.preventDefault();
+        const id = document.getElementById('wp-wholesaler-id').value;
+        const data = {
+            amount: parseFloat(document.getElementById('wp-amount').value),
+            date: document.getElementById('wp-date').value,
+            description: document.getElementById('wp-notes').value || 'Manual Payment'
+        };
+
+        try {
+            const resp = await fetch(`${this.API_URL}/wholesalers/${id}/pay`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (resp.ok) {
+                await this.loadAllData();
+                this.closeModal('wholesaler-payment-modal');
+                this.navigate('accounts');
+            }
+        } catch (e) { console.error(e); }
+    },
+
+    // --- Cloth Inventory Actions ---
+    openClothInventoryModal() {
+        const select = document.getElementById('ci-wholesaler');
+        select.innerHTML = this.data.wholesalers.map(wh => `<option value="${wh.id}">${wh.name}</option>`).join('');
+        document.getElementById('cloth-form').reset();
+        document.getElementById('ci-date').valueAsDate = new Date();
+        this.openModal('cloth-modal');
+    },
+
+    async handleClothSubmit(e) {
+        e.preventDefault();
+        const data = {
+            wholesaler_id: document.getElementById('ci-wholesaler').value,
+            cloth_type: document.getElementById('ci-type').value,
+            quantity: parseFloat(document.getElementById('ci-quantity').value),
+            unit: document.getElementById('ci-unit').value,
+            price_per_unit: parseFloat(document.getElementById('ci-rate').value),
+            total_cost: parseFloat(document.getElementById('ci-total').value),
+            date_received: document.getElementById('ci-date').value,
+            notes: ''
+        };
+
+        try {
+            const resp = await fetch(`${this.API_URL}/cloth-inventory`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (resp.ok) {
+                const result = await resp.json();
+                // Also record in ledger
+                await fetch(`${this.API_URL}/ledger`, {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...product, stock: product.stock + batch.quantity })
+                    body: JSON.stringify({
+                        type: 'expense',
+                        category: 'Raw Materials',
+                        amount: data.total_cost,
+                        description: `Cloth Purchase: ${data.cloth_type} (${data.quantity} ${data.unit}) from ${this.data.wholesalers.find(w => w.id == data.wholesaler_id)?.name || 'Wholesaler'}`,
+                        date: data.date_received,
+                        wholesalerId: data.wholesaler_id
+                    })
+                });
+
+                await this.loadAllData();
+                this.closeModal('cloth-modal');
+            }
+        } catch (e) { console.error(e); }
+    },
+
+    async deleteClothItem(id) {
+        // Implementation for deleting cloth item if needed, for now just log or add endpoint
+        alert('Delete cloth receipt functionality coming soon or delete manually in DB.');
+    },
+
+    // --- Manufacturing Actions ---
+    openLotModal() {
+        const select = document.getElementById('ml-source');
+        if (this.data.clothInventory.length === 0) {
+            alert('Please record cloth receipt first.');
+            this.navigate('wholesalers');
+            return;
+        }
+        select.innerHTML = this.data.clothInventory.map(item =>
+            `<option value="${item.id}">${item.cloth_type} (From: ${item.wholesaler_name}) - ${item.quantity} ${item.unit} available</option>`
+        ).join('');
+        document.getElementById('lot-form').reset();
+        this.openModal('lot-modal');
+    },
+
+    async handleLotSubmit(e) {
+        e.preventDefault();
+        const data = {
+            lot_number: document.getElementById('ml-number').value,
+            cloth_inventory_id: document.getElementById('ml-source').value,
+            initial_pieces: parseInt(document.getElementById('ml-pieces').value),
+            unit_cost: parseFloat(document.getElementById('ml-cost').value),
+            created_at: new Date().toISOString()
+        };
+
+        try {
+            const resp = await fetch(`${this.API_URL}/manufacturing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (resp.ok) {
+                await this.loadAllData();
+                this.closeModal('lot-modal');
+                this.navigate('manufacturing');
+            } else {
+                const err = await resp.json();
+                alert('Error: ' + (err.error || 'Failed to start lot'));
+            }
+        } catch (e) { console.error(e); }
+    },
+
+    openStepModal(lotId) {
+        const lot = this.data.manufacturingLots.find(l => l.id == lotId);
+        if (!lot) return;
+
+        const steps = ['Cutting', 'Stitching', 'Kaj', 'Washing', 'Packing'];
+        const currentIdx = steps.indexOf(lot.current_step);
+        const nextStep = steps[currentIdx + 1] || 'Completed';
+
+        document.getElementById('ms-lot-id').value = lotId;
+        document.getElementById('ms-next-step').value = nextStep;
+        document.getElementById('step-modal-title').innerText = `Process to Next Step: ${nextStep}`;
+        document.getElementById('ms-current-pieces').innerText = lot.current_pieces;
+        document.getElementById('ms-wastage').value = 0;
+        document.getElementById('ms-comments').value = '';
+
+        this.openModal('step-modal');
+    },
+
+    async handleStepSubmit(e) {
+        e.preventDefault();
+        const id = document.getElementById('ms-lot-id').value;
+        const data = {
+            next_step: document.getElementById('ms-next-step').value,
+            wastage: parseInt(document.getElementById('ms-wastage').value),
+            comments: document.getElementById('ms-comments').value,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            const resp = await fetch(`${this.API_URL}/manufacturing/${id}/next-step`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (resp.ok) {
+                await this.loadAllData();
+                this.closeModal('step-modal');
+            }
+        } catch (e) { console.error(e); }
+    },
+
+    async viewLotHistory(lotId) {
+        try {
+            const lot = this.data.manufacturingLots.find(l => l.id == lotId);
+            if (!lot) return;
+
+            const resp = await fetch(`${this.API_URL}/manufacturing/${lotId}/history`);
+            const history = await resp.json();
+
+            const summary = document.getElementById('lot-info-summary');
+            summary.innerHTML = `
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                    <div><span style="color:var(--text-muted)">Lot Number:</span> <span style="color:white; font-family:monospace;">${lot.lot_number}</span></div>
+                    <div><span style="color:var(--text-muted)">Started On:</span> <span style="color:white;">${new Date(lot.created_at).toLocaleDateString()}</span></div>
+                    <div><span style="color:var(--text-muted)">Current Pieces:</span> <span style="color:white;">${lot.current_pieces}</span></div>
+                    <div><span style="color:var(--text-muted)">Total Wastage:</span> <span style="color:var(--accent-red);">${lot.total_wastage}</span></div>
+                </div>
+            `;
+
+            const timeline = document.getElementById('lot-history-timeline');
+            timeline.innerHTML = '';
+
+            if (history.length === 0) {
+                timeline.innerHTML = '<p style="text-align:center; padding:1rem;">No history found.</p>';
+            } else {
+                history.reverse().forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    div.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                            <strong style="color:var(--primary); text-transform:uppercase; letter-spacing:1px;">${item.step_name}</strong>
+                            <span style="font-size:12px; color:var(--text-muted);">${new Date(item.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div style="color:white; margin-bottom:0.5rem; line-height:1.5;">${item.comments || 'No comments'}</div>
+                        ${item.wastage > 0 ? `<div style="font-size:12px; color:var(--accent-red);">Wastage: ${item.wastage} pieces</div>` : ''}
+                    `;
+                    timeline.appendChild(div);
                 });
             }
 
-            // 2. Update status
-            await fetch(`${this.API_URL}/washing/${id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'Delivered' })
-            });
-
-            await this.loadAllData();
+            this.openModal('lot-history-modal');
         } catch (e) {
-            console.error(e);
+            console.error('Error fetching lot history:', e);
         }
     },
 
-    async deleteWashingBatch(id) {
+    openFinishLotModal(lotId) {
+        const lot = this.data.manufacturingLots.find(l => l.id == lotId);
+        if (!lot) return;
+
+        document.getElementById('fl-lot-id').value = lotId;
+        document.getElementById('fl-sku').value = lot.lot_number;
+        document.getElementById('fl-pieces').value = lot.current_pieces;
+        document.getElementById('fl-name').value = '';
+        document.getElementById('fl-price').value = '';
+
+        this.openModal('finish-lot-modal');
+    },
+
+    async handleFinishLotSubmit(e) {
+        e.preventDefault();
+        const id = document.getElementById('fl-lot-id').value;
+        const data = {
+            product_details: {
+                name: document.getElementById('fl-name').value,
+                sku: document.getElementById('fl-sku').value,
+                category: document.getElementById('fl-category').value,
+                fit: document.getElementById('fl-category').value, // Using category as fit for simplicity here
+                wash: 'Standard',
+                sizes: '28,30,32,34,36',
+                price: parseFloat(document.getElementById('fl-price').value)
+            },
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            const resp = await fetch(`${this.API_URL}/manufacturing/${id}/finish`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (resp.ok) {
+                await this.loadAllData();
+                this.closeModal('finish-lot-modal');
+                this.navigate('inventory');
+            }
+        } catch (e) { console.error(e); }
+    },
+
+    async deleteLot(id) {
         this.showConfirm({
-            title: 'Delete Washing Record',
-            message: 'Delete this washing record? (Stock will NOT be returned)',
+            title: 'Delete Lot',
+            message: 'Delete this manufacturing lot and all its history?',
             confirmText: 'Delete',
             onConfirm: async () => {
-                try {
-                    const resp = await fetch(`${this.API_URL}/washing/${id}`, { method: 'DELETE' });
-                    if (resp.ok) await this.loadAllData();
-                } catch (e) {
-                    console.error(e);
-                }
+                await fetch(`${this.API_URL}/manufacturing/${id}`, { method: 'DELETE' });
+                this.loadAllData();
             }
         });
     },
@@ -799,6 +1315,44 @@ const app = {
         };
 
         try {
+            // Include active client link if recording income from profile
+            if (newTransaction.type === 'income' && this.incomeClientId) {
+                newTransaction.clientId = this.incomeClientId;
+                this.incomeClientId = null; // Reset
+            }
+
+            // --- Verification Step for Income ---
+            if (newTransaction.type === 'income') {
+                this.showConfirm({
+                    title: 'Verify Payment',
+                    message: `Please confirm the following payment details:\n\n` +
+                        `Amount: ₹${newTransaction.amount.toFixed(2)}\n` +
+                        `Method: ${newTransaction.category}\n` +
+                        `Description: ${newTransaction.description || 'N/A'}\n` +
+                        `Date: ${new Date(newTransaction.date).toLocaleDateString()}\n\n` +
+                        `Is this correct?`,
+                    confirmText: 'Verify & Save',
+                    onConfirm: async () => {
+                        const resp = await fetch(`${this.API_URL}/ledger`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(newTransaction)
+                        });
+
+                        if (resp.ok) {
+                            await this.loadAllData();
+                            this.closeModal('transaction-modal');
+                            if (this.currentView === 'client-details' && this.activeClientId) {
+                                this.openClientDetails(this.activeClientId);
+                            } else {
+                                this.navigate('accounts');
+                            }
+                        }
+                    }
+                });
+                return; // Wait for confirmation
+            }
+
             const resp = await fetch(`${this.API_URL}/ledger`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -808,17 +1362,86 @@ const app = {
             if (resp.ok) {
                 await this.loadAllData();
                 this.closeModal('transaction-modal');
-                this.navigate('accounts');
+                // Stay on client details if we were there
+                if (this.currentView === 'client-details' && this.activeClientId) {
+                    this.openClientDetails(this.activeClientId);
+                } else {
+                    this.navigate('accounts');
+                }
             }
         } catch (e) {
             console.error(e);
         }
     },
 
+    exportToExcel() {
+        const wb = XLSX.utils.book_new();
+
+        // 1. Dashboard Summary
+        const receivables = this.data.clients.reduce((sum, c) => {
+            const billed = this.data.orders.filter(o => o.clientId == c.id).reduce((s, o) => s + o.total, 0);
+            const paid = this.data.ledgerTransactions.filter(l => l.clientId == c.id && l.type === 'income').reduce((s, l) => s + l.amount, 0);
+            return sum + (billed - paid);
+        }, 0);
+
+        const summary = [
+            ["Spy Garments - Business Report", new Date().toLocaleDateString()],
+            [],
+            ["Metric", "Value"],
+            ["Total Inventory Value", this.data.products.reduce((acc, curr) => acc + (curr.stock * curr.price), 0)],
+            ["Total Pieces in Stock", this.data.products.reduce((acc, curr) => acc + curr.stock, 0)],
+            ["Total Receivables (Clients)", receivables],
+            ["Total WIP Pieces", this.data.manufacturingLots.filter(l => l.status === 'Active').reduce((acc, curr) => acc + curr.current_pieces, 0)],
+            ["Low Stock Articles", this.data.products.filter(p => p.stock < 10).length]
+        ];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Dashboard");
+
+        // 2. Inventory Sheet
+        const invData = this.data.products.map(p => ({
+            "Product Name": p.name,
+            "SKU": p.sku,
+            "Category": p.category,
+            "Fit": p.fit,
+            "Wash": p.wash,
+            "Stock (Pieces)": p.stock,
+            "Price/Piece": p.price,
+            "Total Value": p.stock * p.price
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(invData), "Inventory");
+
+        // 3. Client List & Balances
+        const clientData = this.data.clients.map(c => {
+            const billed = this.data.orders.filter(o => o.clientId == c.id).reduce((s, o) => s + o.total, 0);
+            const paid = this.data.ledgerTransactions.filter(l => l.clientId == c.id && l.type === 'income').reduce((s, l) => s + l.amount, 0);
+            return {
+                "Client Name": c.name,
+                "Phone": c.phone,
+                "Email": c.email,
+                "Total Billed": billed,
+                "Total Paid": paid,
+                "Balance Owed": billed - paid
+            };
+        });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientData), "Clients");
+
+        // 4. Full Ledger
+        const ledgerData = this.data.ledgerTransactions.map(l => ({
+            "Date": l.date,
+            "Type": l.type,
+            "Category": l.category,
+            "Amount": l.amount,
+            "Description": l.description
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ledgerData), "Ledger");
+
+        // Save File
+        XLSX.writeFile(wb, `Spy_Garments_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+    },
+
     openWastageModal() {
         const select = document.getElementById('wastage-product-select');
         select.innerHTML = this.data.products.map(p =>
-            `<option value="${p.id}" data-price="${p.price}" data-stock="${p.stock}">${p.name} (${p.sku}) - ${p.stock} bundles @ ₹${p.price}/bundle</option>`
+            `<option value="${p.id}" data-price="${p.price}" data-stock="${p.stock}">${p.name} (${p.sku}) - ${p.stock} pieces @ ₹${p.price}/piece</option>`
         ).join('');
 
         document.getElementById('wastage-form').reset();
@@ -835,7 +1458,7 @@ const app = {
         const notes = document.getElementById('wastage-notes').value;
 
         if (product.stock < qty) {
-            alert('Not enough stock! Current stock: ' + product.stock + ' bundles.');
+            alert('Not enough stock! Current stock: ' + product.stock + ' pieces.');
             return;
         }
 
@@ -903,14 +1526,19 @@ const app = {
 
         const titleMap = {
             'dashboard': 'Dashboard',
-            'inventory': 'Jeans Inventory',
-            'washing': 'Washing Batches',
-            'accounts': 'Ledger & Accounts',
+            'inventory': 'Inventory',
+            'manufacturing': 'Manufacturing',
+            'wholesalers': 'Wholesalers',
+            'accounts': 'Accounts',
             'orders': 'Orders',
-            'clients': 'Our Clients',
+            'clients': 'Clients',
+            'client-details': 'Client Profile',
             'settings': 'Settings'
         };
         document.getElementById('page-title').innerText = titleMap[viewName] || 'Overview';
+
+        // Refresh data for the newly selected view
+        this.updateUI();
     },
 
     openModal(id) {
@@ -1233,7 +1861,7 @@ const app = {
                 <thead>
                     <tr>
                         <th>Item Description</th>
-                        <th>Qty (Bundles)</th>
+                        <th>Qty (Pieces)</th>
                         <th>Rate (₹)</th>
                         <th style="text-align: right;">Amount (₹)</th>
                     </tr>
