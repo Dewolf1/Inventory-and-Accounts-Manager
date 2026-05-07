@@ -22,15 +22,43 @@ const app = {
     orderChartInstance: null,
     isAuthenticated: false,
     currentSlideIndex: 0,
-    chartTitles: ['Category Distribution', 'Order Completion'],
+    chartTitles: ['Category Distribution', 'Revenue vs Profit'],
 
     // Sequential IDs are now handled by the database
+
+    // Toast notification system
+    showToast(message, type = 'success', duration = 3500) {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        const icons = {
+            success: 'ph-check-circle',
+            error: 'ph-x-circle',
+            warning: 'ph-warning',
+            info: 'ph-info'
+        };
+        toast.innerHTML = `
+            <i class="ph ${icons[type] || icons.info}"></i>
+            <span>${message}</span>
+            <button class="toast-close" onclick="this.parentElement.remove()"><i class="ph ph-x"></i></button>
+        `;
+        container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('toast-visible'));
+        setTimeout(() => {
+            toast.classList.remove('toast-visible');
+            toast.classList.add('toast-exit');
+            setTimeout(() => toast.remove(), 400);
+        }, duration);
+    },
 
     // Initialize the Application
     async init() {
         // Load theme from local storage
         if (localStorage.getItem('theme') === 'light') {
             document.body.classList.add('light-mode');
+            const icon = document.getElementById('theme-icon');
+            if (icon) icon.className = 'ph ph-sun';
         }
 
         // Loading Screen Animation
@@ -72,6 +100,7 @@ const app = {
             this.updateUI();
         } catch (e) {
             console.error('Error loading data from backend:', e);
+            this.showToast('Failed to connect to server. Check if backend is running.', 'error', 5000);
         }
     },
 
@@ -93,9 +122,9 @@ const app = {
     showApp() {
         document.getElementById('login-screen').classList.add('hidden');
         document.getElementById('main-app').classList.remove('hidden');
+        this.navigate('dashboard');
         this.initChart(); // Initialize charts
         this.updateUI();
-        this.navigate('dashboard');
     },
 
     async handleLogin(e) {
@@ -123,10 +152,10 @@ const app = {
                     this.showApp();
                 }, 500);
             } else {
-                alert('Invalid credentials.');
+                this.showToast('Invalid credentials. Please try again.', 'error');
             }
         } catch (e) {
-            alert('Server error. Please try again.');
+            this.showToast('Server error. Please try again.', 'error');
         }
     },
 
@@ -148,10 +177,13 @@ const app = {
     saveData() { this.updateUI(); },
     toggleTheme() {
         document.body.classList.toggle('light-mode');
+        const icon = document.getElementById('theme-icon');
         if (document.body.classList.contains('light-mode')) {
             localStorage.setItem('theme', 'light');
+            if (icon) { icon.className = 'ph ph-sun'; }
         } else {
             localStorage.setItem('theme', 'dark');
+            if (icon) { icon.className = 'ph ph-moon'; }
         }
     },
 
@@ -165,10 +197,10 @@ const app = {
                     const resp = await fetch(`${this.API_URL}/reset`, { method: 'DELETE' });
                     if (resp.ok) {
                         await this.loadAllData();
-                        alert('System data has been completely reset.');
+                        this.showToast('System data has been completely reset.', 'warning');
                         this.navigate('dashboard');
                     } else {
-                        alert('Failed to reset system data.');
+                        this.showToast('Failed to reset system data.', 'error');
                     }
                 } catch (e) {
                     console.error('Reset error:', e);
@@ -188,11 +220,14 @@ const app = {
         // Re-render only the currently active view
         if (this.currentView === 'inventory') this.renderInventory();
         if (this.currentView === 'manufacturing') this.renderManufacturing();
-        if (this.currentView === 'wholesalers') this.renderWholesalers();
+        if (this.currentView === 'wholesalers') {
+            this.renderWholesalers();
+            this.renderClothInventory();
+        }
         if (this.currentView === 'accounts') this.renderLedger();
         if (this.currentView === 'orders') this.renderOrders();
         if (this.currentView === 'clients') this.renderClients();
-        if (this.currentView === 'client-details') this.openClientDetails(this.activeClientId);
+        if (this.currentView === 'client-details') this.refreshClientDetails();
 
         this.updateChart();
         this.renderActivityLog();
@@ -223,7 +258,7 @@ const app = {
         // Calculate Cloth Payables (Debt)
         const totalClothCost = this.data.clothInventory.reduce((sum, item) => sum + (item.total_cost || 0), 0);
         const totalWhPayments = this.data.ledgerTransactions
-            .filter(l => l.wholesaler_id && l.type === 'expense')
+            .filter(l => l.wholesaler_id && l.type === 'supplier_payment')
             .reduce((sum, l) => sum + (l.amount || 0), 0);
         const clothPayables = totalClothCost - totalWhPayments;
 
@@ -260,7 +295,7 @@ const app = {
             }
 
             tr.innerHTML = `
-                <td style="font-weight: 500; color: white;">${product.name}</td>
+                <td style="font-weight: 500; color: var(--text-strong);">${product.name}</td>
                 <td style="font-family: monospace;">${product.sku}</td>
                 <td>
                     <span style="display:block; font-size:12px; color:var(--text-muted)">${product.fit}</span>
@@ -324,7 +359,7 @@ const app = {
             `;
 
             tr.innerHTML = `
-                <td style="font-weight: 500; color: white; font-family: monospace;">${lot.lot_number}</td>
+                <td style="font-weight: 500; color: var(--text-strong); font-family: monospace;">${lot.lot_number}</td>
                 <td>${pipelineHtml}</td>
                 <td>
                     <div style="font-weight: 600; color: var(--primary);">${lot.current_pieces}</div>
@@ -333,7 +368,7 @@ const app = {
                 <td><span style="color: var(--accent-red); font-weight: 600;">-${lot.total_wastage}</span></td>
                 <td>
                     <button class="action-btn" onclick="app.viewLotHistory('${lot.id}')" title="View History"><i class="ph ph-clock-counter-clockwise"></i></button>
-                    ${lot.status === 'Active' && lot.current_step !== 'Completed' ?
+                    ${lot.status === 'Active' && lot.current_step !== 'Completed' && lot.current_step !== 'Packing' ?
                     `<button class="action-btn" onclick="app.openStepModal('${lot.id}')" title="Next Step"><i class="ph ph-arrow-circle-right"></i></button>` : ''}
                     ${lot.current_step === 'Packing' && lot.status === 'Active' ?
                     `<button class="action-btn" style="color: var(--accent-green);" onclick="app.openFinishLotModal('${lot.id}')" title="Send to Inventory"><i class="ph ph-check-square"></i></button>` : ''}
@@ -350,7 +385,7 @@ const app = {
         tbody.innerHTML = '';
 
         if (this.data.wholesalers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 2rem;">No wholesalers recorded.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 2rem;">No suppliers recorded.</td></tr>';
             return;
         }
 
@@ -359,14 +394,14 @@ const app = {
             const totalValue = purchases.reduce((sum, p) => sum + p.total_cost, 0);
 
             const totalPaid = this.data.ledgerTransactions
-                .filter(l => l.wholesaler_id == wh.id && l.type === 'expense')
+                .filter(l => l.wholesaler_id == wh.id && l.type === 'supplier_payment')
                 .reduce((sum, l) => sum + (l.amount || 0), 0);
 
             const balance = totalValue - totalPaid;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td style="font-weight:500; color:white;">${wh.name}</td>
+                <td style="font-weight:500; color:var(--text-strong);">${wh.name}</td>
                 <td>
                     <div>${wh.phone || '-'}</div>
                     <div style="font-size:12px; color:var(--text-muted)">${wh.email || '-'}</div>
@@ -390,7 +425,7 @@ const app = {
         tbody.innerHTML = '';
 
         if (this.data.clothInventory.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">No cloth receipts found.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">No fabric receipts found.</td></tr>';
             return;
         }
 
@@ -398,23 +433,28 @@ const app = {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${new Date(item.date_received).toLocaleDateString()}</td>
-                <td style="font-weight: 500; color: white;">${item.cloth_type}</td>
+                <td style="font-weight: 500; color: var(--text-strong);">${item.cloth_type}</td>
                 <td>${item.wholesaler_name || 'Unknown'}</td>
                 <td>${item.quantity} ${item.unit}</td>
                 <td>₹${Number(item.total_cost).toLocaleString('en-IN')}</td>
                 <td>
-                    <button class="action-btn delete" onclick="app.deleteClothItem('${item.id}')"><i class="ph ph-trash"></i></button>
+                    <button class="action-btn" onclick="app.printFabricBill('${item.id}')" title="Print Receipt"><i class="ph ph-printer"></i></button>
+                    <button class="action-btn delete" onclick="app.deleteClothItem('${item.id}')" title="Delete"><i class="ph ph-trash"></i></button>
                 </td>
             `;
             tbody.appendChild(tr);
         });
     },
 
-    switchSubTab(view, tab) {
+    switchSubTab(view, tab, e) {
         document.querySelectorAll(`#view-${view} .sub-view`).forEach(el => el.classList.add('hidden'));
         document.getElementById(`${view}-${tab}-tab`).classList.remove('hidden');
         document.querySelectorAll(`#view-${view} .tab-btn`).forEach(btn => btn.classList.remove('active'));
-        event.currentTarget.classList.add('active');
+        if (e && e.currentTarget) {
+            e.currentTarget.classList.add('active');
+        } else if (event && event.currentTarget) {
+            event.currentTarget.classList.add('active');
+        }
     },
 
 
@@ -431,7 +471,7 @@ const app = {
             .reduce((sum, t) => sum + t.amount, 0);
 
         const expenses = this.data.ledgerTransactions
-            .filter(t => t.type === 'expense')
+            .filter(t => t.type === 'expense' || t.type === 'supplier_payment')
             .reduce((sum, t) => sum + t.amount, 0);
 
         const wastage = this.data.ledgerTransactions
@@ -489,6 +529,10 @@ const app = {
                 typeClass = 'lowstock';
                 typeIcon = '↓';
                 typeText = 'Expense';
+            } else if (txn.type === 'supplier_payment') {
+                typeClass = 'outstock';
+                typeIcon = '↓';
+                typeText = 'Supplier Pmt';
             } else {
                 typeClass = 'outstock';
                 typeIcon = '✕';
@@ -520,7 +564,7 @@ const app = {
         tbody.innerHTML = '';
 
         if (this.data.clients.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;">No clients recorded.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">No clients recorded.</td></tr>';
             return;
         }
 
@@ -536,7 +580,7 @@ const app = {
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td style="font-weight:500; color:white;">
+                <td style="font-weight:500; color:var(--text-strong);">
                     <a href="#" onclick="app.openClientDetails('${client.id}'); return false;" style="color: var(--primary); text-decoration: none; border-bottom: 1px dashed transparent; transition: all 0.2s;" onmouseover="this.style.borderBottomColor='var(--primary)'" onmouseout="this.style.borderBottomColor='transparent'">${client.name}</a>
                 </td>
                 <td>
@@ -546,7 +590,6 @@ const app = {
                 <td style="max-width:200px; font-size:13px;">${client.address || '-'}</td>
                 <td>${clientOrders.length}</td>
                 <td>₹${totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                <td style="color: ${balance > 0 ? '#ef4444' : '#4ade80'}; font-weight: 600;">₹${balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 <td>
                     <button class="action-btn" onclick="app.editClient('${client.id}')"><i class="ph ph-pencil-simple"></i></button>
                     <button class="action-btn delete" onclick="app.deleteClient('${client.id}')"><i class="ph ph-trash"></i></button>
@@ -560,10 +603,23 @@ const app = {
         const client = this.data.clients.find(c => c.id == clientId);
         if (!client) return;
 
-        this.navigate('client-details');
-        document.getElementById('cd-client-name').innerText = client.name;
-        // Store current client ID for helper functions
+        // Only call navigate if we're not already on client-details
+        // This prevents the infinite loop: navigate -> updateUI -> openClientDetails -> navigate
+        if (this.currentView !== 'client-details') {
+            this.navigate('client-details');
+        }
         this.activeClientId = clientId;
+        this.refreshClientDetails();
+    },
+
+    // Separated rendering logic to avoid recursion from updateUI -> navigate -> updateUI
+    refreshClientDetails() {
+        if (!this.activeClientId) return;
+        const clientId = this.activeClientId;
+        const client = this.data.clients.find(c => c.id == clientId);
+        if (!client) return;
+
+        document.getElementById('cd-client-name').innerText = client.name;
 
         const clientOrders = this.data.orders.filter(o => o.clientId == clientId);
         const totalBilled = clientOrders.reduce((sum, o) => sum + o.total, 0);
@@ -577,14 +633,13 @@ const app = {
         document.getElementById('cd-total-billing').innerText = `₹${totalBilled.toLocaleString('en-IN')}`;
         document.getElementById('cd-balance').innerText = `₹${balance.toLocaleString('en-IN')}`;
 
-        // Color coding for balance
         const balEl = document.getElementById('cd-balance');
         if (balance > 0) {
-            balEl.style.color = '#ef4444'; // Red if owed
+            balEl.style.color = '#ef4444';
         } else if (balance < 0) {
-            balEl.style.color = '#38bdf8'; // Blue if overpaid
+            balEl.style.color = '#38bdf8';
         } else {
-            balEl.style.color = '#4ade80'; // Green if clear
+            balEl.style.color = '#4ade80';
         }
 
         this.renderClientBills(clientOrders);
@@ -675,7 +730,7 @@ const app = {
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td style="font-family: monospace; font-weight: 500; color: white;">#${o.id.toString().slice(-6)}</td>
+                <td style="font-family: monospace; font-weight: 500; color: var(--text-strong);">#${o.id.toString().slice(-6)}</td>
                 <td>${clientName}</td>
                 <td>${o.quantity} piezas</td>
                 <td style="font-weight: 600;">₹${o.total.toLocaleString('en-IN')}</td>
@@ -739,6 +794,39 @@ const app = {
         this.openModal('product-modal');
     },
 
+    openAddStockModal() {
+        const select = document.getElementById('as-product');
+        select.innerHTML = this.data.products.map(p => `<option value="${p.id}">${p.name} (${p.sku}) — Stock: ${p.stock}</option>`).join('');
+        document.getElementById('add-stock-form').reset();
+        this.openModal('add-stock-modal');
+    },
+
+    async handleAddStockSubmit(e) {
+        e.preventDefault();
+        const productId = document.getElementById('as-product').value;
+        const quantity = parseInt(document.getElementById('as-quantity').value);
+
+        if (!productId || !quantity || quantity < 1) {
+            this.showToast('Please select a product and enter a valid quantity.', 'warning');
+            return;
+        }
+
+        try {
+            const resp = await fetch(`${this.API_URL}/products/${productId}/add-stock`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quantity })
+            });
+            if (resp.ok) {
+                await this.loadAllData();
+                this.closeModal('add-stock-modal');
+                this.showToast(`Successfully added ${quantity} pieces to inventory.`, 'success');
+            } else {
+                this.showToast('Error adding stock.', 'error');
+            }
+        } catch (e) { console.error(e); }
+    },
+
     editProduct(id) {
         const product = this.data.products.find(p => p.id == id);
         if (!product) return;
@@ -749,7 +837,6 @@ const app = {
         document.getElementById('p-category').value = product.category;
         document.getElementById('p-fit').value = product.fit;
         document.getElementById('p-wash').value = product.wash;
-        document.getElementById('p-sizes').value = product.sizes;
         document.getElementById('p-stock').value = product.stock;
         document.getElementById('p-cost').value = product.costPrice || product.price * 0.7; // Fallback
         document.getElementById('p-price').value = product.price;
@@ -767,7 +854,6 @@ const app = {
             category: document.getElementById('p-category').value,
             fit: document.getElementById('p-fit').value,
             wash: document.getElementById('p-wash').value,
-            sizes: document.getElementById('p-sizes').value,
             stock: parseInt(document.getElementById('p-stock').value),
             costPrice: parseFloat(document.getElementById('p-cost').value),
             price: parseFloat(document.getElementById('p-price').value)
@@ -787,7 +873,7 @@ const app = {
                 await this.loadAllData();
                 this.closeModal('product-modal');
             } else {
-                alert('Error saving product.');
+                this.showToast('Error saving product.', 'error');
             }
         } catch (e) {
             console.error(e);
@@ -834,7 +920,14 @@ const app = {
         const select = document.getElementById('o-product-select');
         const price = parseFloat(select.options[select.selectedIndex].getAttribute('data-price'));
         const qty = parseInt(document.getElementById('o-quantity').value) || 0;
-        document.getElementById('o-total-preview').value = '₹' + (price * qty).toFixed(2);
+        const gstRate = parseFloat(document.getElementById('o-gst').value) || 0;
+        
+        const baseTotal = price * qty;
+        const taxAmount = baseTotal * (gstRate / 100);
+        const finalTotal = baseTotal + taxAmount;
+        
+        document.getElementById('o-tax-preview').value = '₹' + taxAmount.toFixed(2);
+        document.getElementById('o-total-preview').value = '₹' + finalTotal.toFixed(2);
     },
 
     async handleOrderSubmit(e) {
@@ -844,22 +937,29 @@ const app = {
         const qty = parseInt(document.getElementById('o-quantity').value);
 
         if (product.stock < qty) {
-            alert('Not enough stock! Current stock: ' + product.stock + ' pieces.');
+            this.showToast('Not enough stock! Current stock: ' + product.stock + ' pieces.', 'warning');
             return;
         }
 
         const clientName = document.getElementById('o-client').value;
         let client = this.data.clients.find(c => c.name === clientName);
 
-        // Auto-create client if doesn't exist? (Or just use ID if provided)
-        // For matching app logic, we'll assume they exist or we use a default ID
-        const clientId = client ? client.id : null;
+        if (!client) {
+            this.showToast('Client not found. Please add the client first.', 'warning');
+            return;
+        }
+        const clientId = client.id;
+
+        const baseTotal = qty * product.price;
+        const gstRate = parseFloat(document.getElementById('o-gst').value) || 0;
+        const taxAmount = baseTotal * (gstRate / 100);
+        const finalTotal = baseTotal + taxAmount;
 
         const orderData = {
             clientId: clientId,
             productId: productId,
             quantity: qty,
-            total: qty * product.price,
+            total: finalTotal,
             date: new Date().toISOString(),
             status: 'Pending'
         };
@@ -887,9 +987,13 @@ const app = {
                 } else {
                     this.navigate('clients');
                 }
+                this.showToast('Order created successfully!', 'success');
+            } else {
+                this.showToast('Failed to create order. Please try again.', 'error');
             }
         } catch (e) {
             console.error(e);
+            this.showToast('Server error while creating order.', 'error');
         }
     },
 
@@ -939,7 +1043,7 @@ const app = {
     openWholesalerModal() {
         document.getElementById('wholesaler-form').reset();
         document.getElementById('wh-id').value = '';
-        document.getElementById('wholesaler-modal-title').innerText = 'Add New Wholesaler';
+        document.getElementById('wholesaler-modal-title').innerText = 'Add New Supplier';
         this.openModal('wholesaler-modal');
     },
 
@@ -951,7 +1055,7 @@ const app = {
         document.getElementById('wh-phone').value = wh.phone || '';
         document.getElementById('wh-email').value = wh.email || '';
         document.getElementById('wh-address').value = wh.address || '';
-        document.getElementById('wholesaler-modal-title').innerText = 'Edit Wholesaler';
+        document.getElementById('wholesaler-modal-title').innerText = 'Edit Supplier';
         this.openModal('wholesaler-modal');
     },
 
@@ -982,7 +1086,7 @@ const app = {
 
     async deleteWholesaler(id) {
         this.showConfirm({
-            title: 'Delete Wholesaler',
+            title: 'Delete Supplier',
             message: 'Are you sure? This will not delete historical purchases.',
             confirmText: 'Delete',
             onConfirm: async () => {
@@ -1035,8 +1139,23 @@ const app = {
         this.openModal('cloth-modal');
     },
 
+    calculateClothTotal() {
+        const qty = parseFloat(document.getElementById('ci-quantity').value) || 0;
+        const rate = parseFloat(document.getElementById('ci-rate').value) || 0;
+        let baseCost = qty * rate;
+        const gstRate = parseFloat(document.getElementById('ci-gst').value) || 0;
+        if (gstRate > 0) {
+            baseCost += baseCost * (gstRate / 100);
+        }
+        document.getElementById('ci-total').value = baseCost.toFixed(2);
+    },
+
     async handleClothSubmit(e) {
         e.preventDefault();
+        const billNo = document.getElementById('ci-bill').value.trim();
+        const gstRate = parseFloat(document.getElementById('ci-gst').value) || 0;
+        const notesStr = (billNo ? `Bill No: ${billNo}. ` : '') + (gstRate > 0 ? `Included ${gstRate}% GST. ` : '');
+
         const data = {
             wholesaler_id: document.getElementById('ci-wholesaler').value,
             cloth_type: document.getElementById('ci-type').value,
@@ -1045,7 +1164,7 @@ const app = {
             price_per_unit: parseFloat(document.getElementById('ci-rate').value),
             total_cost: parseFloat(document.getElementById('ci-total').value),
             date_received: document.getElementById('ci-date').value,
-            notes: ''
+            notes: notesStr
         };
 
         try {
@@ -1055,21 +1174,6 @@ const app = {
                 body: JSON.stringify(data)
             });
             if (resp.ok) {
-                const result = await resp.json();
-                // Also record in ledger
-                await fetch(`${this.API_URL}/ledger`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'expense',
-                        category: 'Raw Materials',
-                        amount: data.total_cost,
-                        description: `Cloth Purchase: ${data.cloth_type} (${data.quantity} ${data.unit}) from ${this.data.wholesalers.find(w => w.id == data.wholesaler_id)?.name || 'Wholesaler'}`,
-                        date: data.date_received,
-                        wholesalerId: data.wholesaler_id
-                    })
-                });
-
                 await this.loadAllData();
                 this.closeModal('cloth-modal');
             }
@@ -1077,15 +1181,32 @@ const app = {
     },
 
     async deleteClothItem(id) {
-        // Implementation for deleting cloth item if needed, for now just log or add endpoint
-        alert('Delete cloth receipt functionality coming soon or delete manually in DB.');
+        this.showConfirm({
+            title: 'Delete Fabric Receipt',
+            message: 'Delete this fabric stock receipt? This cannot be undone.',
+            confirmText: 'Delete',
+            onConfirm: async () => {
+                try {
+                    const resp = await fetch(`${this.API_URL}/cloth-inventory/${id}`, { method: 'DELETE' });
+                    if (resp.ok) {
+                        await this.loadAllData();
+                        this.showToast('Fabric receipt deleted.', 'success');
+                    } else {
+                        this.showToast('Error deleting fabric receipt.', 'error');
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.showToast('Server error while deleting.', 'error');
+                }
+            }
+        });
     },
 
     // --- Manufacturing Actions ---
     openLotModal() {
         const select = document.getElementById('ml-source');
         if (this.data.clothInventory.length === 0) {
-            alert('Please record cloth receipt first.');
+            this.showToast('Please add fabric stock first.', 'warning');
             this.navigate('wholesalers');
             return;
         }
@@ -1160,8 +1281,14 @@ const app = {
             if (resp.ok) {
                 await this.loadAllData();
                 this.closeModal('step-modal');
+                this.showToast('Lot step updated successfully.', 'success');
+            } else {
+                this.showToast('Failed to update lot step.', 'error');
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e); 
+            this.showToast('Server error updating lot step.', 'error');
+        }
     },
 
     async viewLotHistory(lotId) {
@@ -1216,25 +1343,38 @@ const app = {
         document.getElementById('fl-lot-id').value = lotId;
         document.getElementById('fl-sku').value = lot.lot_number;
         document.getElementById('fl-pieces').value = lot.current_pieces;
+        document.getElementById('fl-wastage').value = 0;
+        document.getElementById('fl-comments').value = '';
+        document.getElementById('fl-sizes').value = '';
         document.getElementById('fl-name').value = '';
         document.getElementById('fl-price').value = '';
+        this._finishLotOriginalPieces = lot.current_pieces;
 
         this.openModal('finish-lot-modal');
+    },
+
+    updateFinishPieces() {
+        const wastage = parseInt(document.getElementById('fl-wastage').value) || 0;
+        const original = this._finishLotOriginalPieces || 0;
+        document.getElementById('fl-pieces').value = Math.max(0, original - wastage);
     },
 
     async handleFinishLotSubmit(e) {
         e.preventDefault();
         const id = document.getElementById('fl-lot-id').value;
+        const wastage = parseInt(document.getElementById('fl-wastage').value) || 0;
         const data = {
             product_details: {
                 name: document.getElementById('fl-name').value,
                 sku: document.getElementById('fl-sku').value,
                 category: document.getElementById('fl-category').value,
-                fit: document.getElementById('fl-category').value, // Using category as fit for simplicity here
+                fit: document.getElementById('fl-category').value,
                 wash: 'Standard',
-                sizes: '28,30,32,34,36',
+                sizes: document.getElementById('fl-sizes').value,
                 price: parseFloat(document.getElementById('fl-price').value)
             },
+            wastage: wastage,
+            comments: document.getElementById('fl-comments').value,
             timestamp: new Date().toISOString()
         };
 
@@ -1248,8 +1388,14 @@ const app = {
                 await this.loadAllData();
                 this.closeModal('finish-lot-modal');
                 this.navigate('inventory');
+                this.showToast('Lot finished and added to inventory!', 'success');
+            } else {
+                this.showToast('Failed to finish lot.', 'error');
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e); 
+            this.showToast('Server error finishing lot.', 'error');
+        }
     },
 
     async deleteLot(id) {
@@ -1295,10 +1441,10 @@ const app = {
             `;
         }
 
-        // Set today's date as default
-        document.getElementById('txn-date').valueAsDate = new Date();
+        // Reset first, then set defaults
         document.getElementById('transaction-form').reset();
-        document.getElementById('txn-type').value = type; // Reset clears it, so set again
+        document.getElementById('txn-type').value = type;
+        document.getElementById('txn-date').valueAsDate = new Date();
 
         this.openModal('transaction-modal');
     },
@@ -1333,20 +1479,28 @@ const app = {
                         `Is this correct?`,
                     confirmText: 'Verify & Save',
                     onConfirm: async () => {
-                        const resp = await fetch(`${this.API_URL}/ledger`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(newTransaction)
-                        });
+                        try {
+                            const resp = await fetch(`${this.API_URL}/ledger`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(newTransaction)
+                            });
 
-                        if (resp.ok) {
-                            await this.loadAllData();
-                            this.closeModal('transaction-modal');
-                            if (this.currentView === 'client-details' && this.activeClientId) {
-                                this.openClientDetails(this.activeClientId);
+                            if (resp.ok) {
+                                await this.loadAllData();
+                                this.closeModal('transaction-modal');
+                                this.showToast('Payment recorded successfully!', 'success');
+                                if (this.currentView === 'client-details' && this.activeClientId) {
+                                    this.openClientDetails(this.activeClientId);
+                                } else {
+                                    this.navigate('accounts');
+                                }
                             } else {
-                                this.navigate('accounts');
+                                this.showToast('Failed to record payment.', 'error');
                             }
+                        } catch (err) {
+                            console.error(err);
+                            this.showToast('Server error while recording payment.', 'error');
                         }
                     }
                 });
@@ -1371,6 +1525,7 @@ const app = {
             }
         } catch (e) {
             console.error(e);
+            this.showToast('Server error while saving transaction.', 'error');
         }
     },
 
@@ -1380,7 +1535,7 @@ const app = {
         // 1. Dashboard Summary
         const receivables = this.data.clients.reduce((sum, c) => {
             const billed = this.data.orders.filter(o => o.clientId == c.id).reduce((s, o) => s + o.total, 0);
-            const paid = this.data.ledgerTransactions.filter(l => l.clientId == c.id && l.type === 'income').reduce((s, l) => s + l.amount, 0);
+            const paid = this.data.ledgerTransactions.filter(l => l.client_id == c.id && l.type === 'income').reduce((s, l) => s + l.amount, 0);
             return sum + (billed - paid);
         }, 0);
 
@@ -1412,7 +1567,7 @@ const app = {
         // 3. Client List & Balances
         const clientData = this.data.clients.map(c => {
             const billed = this.data.orders.filter(o => o.clientId == c.id).reduce((s, o) => s + o.total, 0);
-            const paid = this.data.ledgerTransactions.filter(l => l.clientId == c.id && l.type === 'income').reduce((s, l) => s + l.amount, 0);
+            const paid = this.data.ledgerTransactions.filter(l => l.client_id == c.id && l.type === 'income').reduce((s, l) => s + l.amount, 0);
             return {
                 "Client Name": c.name,
                 "Phone": c.phone,
@@ -1458,7 +1613,7 @@ const app = {
         const notes = document.getElementById('wastage-notes').value;
 
         if (product.stock < qty) {
-            alert('Not enough stock! Current stock: ' + product.stock + ' pieces.');
+            this.showToast('Not enough stock! Current stock: ' + product.stock + ' pieces.', 'warning');
             return;
         }
 
@@ -1516,7 +1671,9 @@ const app = {
         document.querySelectorAll('.nav-item').forEach(btn => {
             btn.classList.remove('active');
             const span = btn.querySelector('span');
-            if (span && span.innerText.toLowerCase().includes(viewName === 'orders' ? 'order' : viewName)) {
+            const viewLabel = span ? span.innerText.toLowerCase() : '';
+            const matchName = viewName === 'wholesalers' ? 'fabric' : (viewName === 'orders' ? 'order' : viewName);
+            if (viewLabel.includes(matchName)) {
                 btn.classList.add('active');
             }
         });
@@ -1528,7 +1685,7 @@ const app = {
             'dashboard': 'Dashboard',
             'inventory': 'Inventory',
             'manufacturing': 'Manufacturing',
-            'wholesalers': 'Wholesalers',
+            'wholesalers': 'Fabric',
             'accounts': 'Accounts',
             'orders': 'Orders',
             'clients': 'Clients',
@@ -1646,23 +1803,23 @@ const app = {
         });
     },
 
-    initOrderChart() {
-        const ctx = document.getElementById('orderChart');
+    initFinanceChart() {
+        const ctx = document.getElementById('financeChart');
         if (!ctx) return;
 
-        const data = this.getOrderStatusData();
+        const data = this.getFinancialPerformanceData();
 
-        if (this.orderChartInstance) this.orderChartInstance.destroy();
+        if (this.financeChartInstance) this.financeChartInstance.destroy();
 
-        this.orderChartInstance = new Chart(ctx, {
+        this.financeChartInstance = new Chart(ctx, {
             type: 'pie',
             data: {
                 labels: data.labels,
                 datasets: [{
                     data: data.values,
                     backgroundColor: [
-                        'rgba(168, 162, 158, 0.7)', // Pending
-                        'rgba(99, 102, 241, 0.7)'  // Completed
+                        'rgba(99, 102, 241, 0.7)', // Revenue (Blue/Indigo)
+                        'rgba(34, 197, 94, 0.7)'   // Profit (Green)
                     ],
                     borderColor: '#1e293b',
                     borderWidth: 2
@@ -1708,16 +1865,20 @@ const app = {
         };
     },
 
-    getOrderStatusData() {
-        let pending = 0;
-        let completed = 0;
-        this.data.orders.forEach(o => {
-            if (o.status === 'Completed') completed++;
-            else pending++;
-        });
+    getFinancialPerformanceData() {
+        const revenue = this.data.ledgerTransactions
+            .filter(t => t.type === 'income')
+            .reduce((sum, t) => sum + t.amount, 0);
+
+        const expenses = this.data.ledgerTransactions
+            .filter(t => t.type === 'expense' || t.type === 'supplier_payment' || t.type === 'wastage')
+            .reduce((sum, t) => sum + t.amount, 0);
+
+        const profit = revenue - expenses;
+        
         return {
-            labels: ['Pending', 'Completed'],
-            values: [pending, completed]
+            labels: ['Total Cost', 'Net Profit'],
+            values: [expenses, Math.max(0, profit)]
         };
     },
 
@@ -1738,10 +1899,10 @@ const app = {
 
         // Lazy Load or Resize
         if (this.currentSlideIndex === 1) {
-            if (!this.orderChartInstance) {
-                this.initOrderChart();
+            if (!this.financeChartInstance) {
+                this.initFinanceChart();
             } else {
-                this.orderChartInstance.resize();
+                this.financeChartInstance.update();
             }
         } else if (this.currentSlideIndex === 0 && this.categoryChartInstance) {
             this.categoryChartInstance.resize();
@@ -1822,88 +1983,322 @@ const app = {
 
         const product = this.data.products.find(p => p.id == order.productId);
         const client = this.data.clients.find(c => c.id == order.clientId);
+        
+        let qty = order.quantity;
+        let finalTotal = order.total;
+        
+        // Deduce base price and tax
+        let baseRate = finalTotal / qty; // Default
+        let gstAmount = 0;
+        let gstLabel = '';
+        let isGst = false;
+        
+        if (product && Math.abs(finalTotal - (product.price * qty * 1.05)) < 0.1) {
+            baseRate = product.price;
+            isGst = true;
+            gstAmount = (baseRate * qty) * 0.05;
+            gstLabel = '5%';
+        } else if (product && Math.abs(finalTotal - (product.price * qty * 1.025)) < 0.1) {
+            baseRate = product.price;
+            isGst = true;
+            gstAmount = (baseRate * qty) * 0.025;
+            gstLabel = '2.5%';
+        } else if (product && Math.abs(finalTotal - (product.price * qty)) < 0.1) {
+            baseRate = product.price;
+        } else {
+            // Infer if it looks like a 105% or 102.5% multiple
+            let approxBase5 = finalTotal / 1.05;
+            let approxBase25 = finalTotal / 1.025;
+            
+            if (Math.abs(approxBase5 - Math.round(approxBase5)) < 0.01) {
+                baseRate = approxBase5 / qty;
+                isGst = true;
+                gstAmount = approxBase5 * 0.05;
+                gstLabel = '5%';
+            } else if (Math.abs(approxBase25 - Math.round(approxBase25)) < 0.01) {
+                baseRate = approxBase25 / qty;
+                isGst = true;
+                gstAmount = approxBase25 * 0.025;
+                gstLabel = '2.5%';
+            }
+        }
+        
+        let baseTotal = baseRate * qty;
+        
+        const numberToWords = (num) => {
+            const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
+            const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+            if ((num = num.toString()).length > 9) return 'overflow';
+            let n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+            if (!n) return;
+            let str = '';
+            str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'Crore ' : '';
+            str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'Lakh ' : '';
+            str += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + 'Thousand ' : '';
+            str += (n[4] != 0) ? (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) + 'Hundred ' : '';
+            str += (n[5] != 0) ? ((str != '') ? 'and ' : '') + (a[Number(n[5])] || b[n[5][0]] + ' ' + a[n[5][1]]) + 'Only' : 'Only';
+            return str.trim() === 'Only' ? 'Zero Only' : str;
+        };
 
         const paper = document.getElementById('invoice-paper');
         paper.innerHTML = `
-            <div class="invoice-header">
-                <div class="invoice-brand">
-                    <img src="logo.png" style="width: 60px; margin-bottom: 10px;">
-                    <h1>SPY GARMENTS</h1>
-                    <p style="color: #64748b;">Premium Wholesale Jeans & Clothing</p>
-                </div>
-                <div class="invoice-meta">
-                    <h2 style="font-size: 24px; color: #1e293b;">INVOICE</h2>
-                    <p><strong>#${order.id}</strong></p>
-                    <p>Date: ${new Date(order.date).toLocaleDateString()}</p>
-                    <p>Status: ${order.status}</p>
-                </div>
-            </div>
-
-            <div class="invoice-details">
-                <div class="inv-from">
-                    <div class="inv-label">From:</div>
-                    <p><strong>Spy Garments Wholesale</strong></p>
-                    <p>Industrial Estate, GIDC</p>
-                    <p>Ahmedabad, Gujarat</p>
-                    <p>Contact: +91 98765 43210</p>
-                </div>
-                <div class="inv-to">
-                    <div class="inv-label">Bill To:</div>
-                    <p><strong>${client ? client.name : 'Unknown Client'}</strong></p>
-                    ${client ? `
-                        <p>${client.address || 'Address not specified'}</p>
-                        <p>Phone: ${client.phone || 'N/A'}</p>
-                    ` : '<p>Address not specified</p>'}
-                </div>
-            </div>
-
-            <table class="inv-table">
-                <thead>
-                    <tr>
-                        <th>Item Description</th>
-                        <th>Qty (Pieces)</th>
-                        <th>Rate (₹)</th>
-                        <th style="text-align: right;">Amount (₹)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>
-                            <strong>${product ? product.name : 'Jeans Article'}</strong><br>
-                            <span style="font-size: 11px; color: #64748b;">SKU: ${product ? product.sku : '-'} | Fit: ${product ? product.fit : '-'}</span>
-                        </td>
-                        <td>${order.quantity}</td>
-                        <td>${(order.total / order.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                        <td style="text-align: right;">${order.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <div class="inv-total-section">
-                <div class="inv-summary">
-                    <div class="inv-total-row">
-                        <span>Subtotal:</span>
-                        <span>₹${order.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div class="inv-total-row">
-                        <span>Tax (0%):</span>
-                        <span>₹0.00</span>
-                    </div>
-                    <div class="inv-total-row grand">
-                        <span>Total:</span>
-                        <span>₹${order.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            <div class="indian-invoice">
+                <div class="invoice-header">
+                    <div style="text-align:center; width:100%;">
+                        <h2 style="margin:0; font-size: 24px; text-transform: uppercase; color: #1e293b;">Tax Invoice</h2>
                     </div>
                 </div>
-            </div>
+                <div class="company-details" style="display:flex; justify-content:space-between; margin-top:1rem; border-bottom:2px solid #1e293b; padding-bottom:1rem;">
+                    <div>
+                        <h1 style="margin:0; font-size: 28px; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">SPY GARMENTS</h1>
+                        <p style="margin:2px 0; color: #475569; font-weight: 500;">Premium Wholesale Jeans & Clothing</p>
+                        <p style="margin:2px 0; font-size: 12px;">Industrial Estate, GIDC, Ahmedabad, Gujarat</p>
+                        <p style="margin:2px 0; font-size: 12px;">Contact: +91 98765 43210</p>
+                        <p style="margin:2px 0; font-size: 13px;"><strong>GSTIN:</strong> 24AAAAA0000A1Z5</p>
+                    </div>
+                    <div style="text-align: right; display:flex; flex-direction:column; justify-content:flex-end;">
+                        <p style="margin:2px 0; font-size: 14px;"><strong>Invoice No:</strong> #INV-${order.id.toString().padStart(5, '0')}</p>
+                        <p style="margin:2px 0; font-size: 14px;"><strong>Date:</strong> ${new Date(order.date).toLocaleDateString()}</p>
+                        <p style="margin:2px 0; font-size: 14px;"><strong>Status:</strong> ${order.status}</p>
+                    </div>
+                </div>
 
-            <div style="margin-top: 4rem; border-top: 1px solid #f1f5f9; padding-top: 2rem;">
-                <p style="font-size: 12px; color: #64748b; text-align: center;">
-                    Thank you for your business! This is a computer generated invoice.
-                </p>
+                <div class="client-details" style="display:flex; justify-content:space-between; margin-top:1rem; margin-bottom:1rem;">
+                    <div style="width: 48%; border: 1px solid #cbd5e1; padding: 10px; border-radius: 4px; background: #f8fafc;">
+                        <p style="margin:0; font-weight:bold; border-bottom:1px solid #e2e8f0; padding-bottom:5px; margin-bottom:5px; color:#1e293b;">Billed To:</p>
+                        <p style="margin:2px 0; font-weight:700; font-size:16px; color:#0f172a;">${client ? client.name : 'Unknown Client'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;">${client ? (client.address || 'Address not specified') : 'Address not specified'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;"><strong>Phone:</strong> ${client ? (client.phone || 'N/A') : 'N/A'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;"><strong>GSTIN:</strong> URB (Unregistered)</p>
+                    </div>
+                    <div style="width: 48%; border: 1px solid #cbd5e1; padding: 10px; border-radius: 4px; background: #f8fafc;">
+                        <p style="margin:0; font-weight:bold; border-bottom:1px solid #e2e8f0; padding-bottom:5px; margin-bottom:5px; color:#1e293b;">Shipped To:</p>
+                        <p style="margin:2px 0; font-weight:700; font-size:16px; color:#0f172a;">${client ? client.name : 'Unknown Client'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;">${client ? (client.address || 'Address not specified') : 'Address not specified'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;"><strong>Phone:</strong> ${client ? (client.phone || 'N/A') : 'N/A'}</p>
+                    </div>
+                </div>
+
+                <table class="inv-table indian-table" style="width:100%; border-collapse: collapse; margin-bottom: 0;">
+                    <thead style="background: #e2e8f0; border: 1px solid #cbd5e1;">
+                        <tr>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">S.No</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">Description of Goods</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">HSN/SAC</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">Qty</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">Rate (₹)</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px; text-align: right;">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:center; color:#334155;">1</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px;">
+                                <strong style="color:#0f172a;">${product ? product.name : 'Jeans Article'}</strong><br>
+                                <span style="font-size: 11px; color: #64748b;">SKU: ${product ? product.sku : '-'} | Fit: ${product ? product.fit : '-'} | Size: ${product ? product.sizes : '-'}</span>
+                            </td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:center; color:#334155;">6203</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:center; color:#334155;">${qty} Pcs</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:right; color:#334155;">${baseRate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:right; color:#334155; font-weight:600;">${baseTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr style="height: 60px;">
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div style="display:flex; border: 1px solid #cbd5e1; border-top: none;">
+                    <div style="flex: 1; padding: 10px; border-right: 1px solid #cbd5e1;">
+                        <p style="margin:0 0 5px 0; color:#1e293b; font-size:12px;"><strong>Declaration:</strong></p>
+                        <p style="margin:0; font-size:11px; color:#475569;">We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</p>
+                        
+                        <div style="margin-top:15px;">
+                            <p style="margin:0 0 5px 0; color:#1e293b; font-size:12px;"><strong>Terms & Conditions:</strong></p>
+                            <ul style="margin:0; padding-left:15px; font-size:10px; color:#475569;">
+                                <li>Goods once sold will not be taken back.</li>
+                                <li>Subject to Ahmedabad Jurisdiction only.</li>
+                                <li>E.& O.E.</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #cbd5e1; padding: 8px 10px; color:#334155;">
+                            <span>Total Taxable Value</span>
+                            <strong>₹${baseTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        ${isGst ? `
+                        <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #cbd5e1; padding: 6px 10px; color:#475569; font-size:13px;">
+                            <span>GST @ ${gstLabel}</span>
+                            <span>₹${gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        ` : ''}
+                        <div style="display:flex; justify-content:space-between; padding: 10px; background: #e2e8f0; font-size: 18px; color:#0f172a;">
+                            <strong>Grand Total</strong>
+                            <strong>₹${finalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="border: 1px solid #cbd5e1; border-top: none; padding: 10px; background:#f8fafc;">
+                    <p style="margin:0; font-size: 13px; color:#475569;"><strong>Amount in Words:</strong></p>
+                    <p style="margin:5px 0 0 0; font-size: 15px; font-weight: 600; color:#1e293b; text-transform:capitalize;">${numberToWords(Math.round(finalTotal))} Rupees Only</p>
+                </div>
+
+                <div style="display:flex; border: 1px solid #cbd5e1; border-top:none;">
+                    <div style="flex: 1.5; padding: 10px; border-right: 1px solid #cbd5e1; display:flex; flex-direction:column; justify-content:flex-end;">
+                        <p style="margin:0; font-size:12px; color:#475569; border-top:1px dashed #cbd5e1; padding-top:5px; width:200px; text-align:center;">Receiver's Signature</p>
+                    </div>
+                    <div style="flex: 1; padding: 10px; text-align:center; display:flex; flex-direction:column; justify-content:flex-end;">
+                        <p style="margin:0 0 40px 0; font-weight:bold; font-size:13px; color:#0f172a;">For SPY GARMENTS</p>
+                        <p style="margin:0; font-size:12px; border-top:1px solid #cbd5e1; padding-top:5px; color:#475569;">Authorized Signatory</p>
+                    </div>
+                </div>
             </div>
         `;
 
         this.openModal('invoice-overlay');
+    },
+
+    printFabricBill(inventoryId) {
+        const item = this.data.clothInventory.find(c => c.id == inventoryId);
+        if (!item) return;
+
+        let finalTotal = item.total_cost;
+        let baseCost = item.quantity * item.price_per_unit;
+        let taxAmount = finalTotal - baseCost;
+        let hasGst = taxAmount > 0;
+        let gstAmount = taxAmount;
+        
+        let wholesaler = this.data.wholesalers.find(w => w.id == item.wholesaler_id);
+
+        const numberToWords = (num) => {
+            const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
+            const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+            if ((num = num.toString()).length > 9) return 'overflow';
+            let n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+            if (!n) return;
+            let str = '';
+            str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'Crore ' : '';
+            str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'Lakh ' : '';
+            str += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + 'Thousand ' : '';
+            str += (n[4] != 0) ? (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) + 'Hundred ' : '';
+            str += (n[5] != 0) ? ((str != '') ? 'and ' : '') + (a[Number(n[5])] || b[n[5][0]] + ' ' + a[n[5][1]]) + 'Only' : 'Only';
+            return str.trim() === 'Only' ? 'Zero Only' : str;
+        };
+
+        const paper = document.getElementById('invoice-paper');
+        paper.innerHTML = `
+            <div class="indian-invoice">
+                <div class="invoice-header">
+                    <div style="text-align:center; width:100%;">
+                        <h2 style="margin:0; font-size: 24px; text-transform: uppercase; color: #1e293b;">Fabric Stock Receipt</h2>
+                    </div>
+                </div>
+                <div class="company-details" style="display:flex; justify-content:space-between; margin-top:1rem; border-bottom:2px solid #1e293b; padding-bottom:1rem;">
+                    <div>
+                        <h1 style="margin:0; font-size: 28px; color: #0f172a; font-family: sans-serif; letter-spacing: 1px;">SPY GARMENTS</h1>
+                        <p style="margin:2px 0; color: #475569; font-weight: 500;">Premium Wholesale Jeans & Clothing</p>
+                        <p style="margin:2px 0; font-size: 12px;">Industrial Estate, GIDC, Ahmedabad, Gujarat</p>
+                        <p style="margin:2px 0; font-size: 12px;">Contact: +91 98765 43210</p>
+                        <p style="margin:2px 0; font-size: 13px;"><strong>GSTIN:</strong> 24AAAAA0000A1Z5</p>
+                    </div>
+                    <div style="text-align: right; display:flex; flex-direction:column; justify-content:flex-end;">
+                        <p style="margin:2px 0; font-size: 14px;"><strong>Receipt No:</strong> #FB-${item.id.toString().padStart(4, '0')}</p>
+                        <p style="margin:2px 0; font-size: 14px;"><strong>Date:</strong> ${new Date(item.date_received).toLocaleDateString()}</p>
+                    </div>
+                </div>
+
+                <div class="client-details" style="display:flex; justify-content:space-between; margin-top:1rem; margin-bottom:1rem;">
+                    <div style="width: 48%; border: 1px solid #cbd5e1; padding: 10px; border-radius: 4px; background: #f8fafc;">
+                        <p style="margin:0; font-weight:bold; border-bottom:1px solid #e2e8f0; padding-bottom:5px; margin-bottom:5px; color:#1e293b;">Supplier Information:</p>
+                        <p style="margin:2px 0; font-weight:700; font-size:16px; color:#0f172a;">${item.wholesaler_name || 'Unknown'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;">${wholesaler ? (wholesaler.address || 'Address not specified') : 'Address not specified'}</p>
+                        <p style="margin:2px 0; font-size: 13px; color:#334155;"><strong>Phone:</strong> ${wholesaler ? (wholesaler.phone || 'N/A') : 'N/A'}</p>
+                    </div>
+                    <div style="width: 48%; border: 1px solid #cbd5e1; padding: 10px; border-radius: 4px; background: #f8fafc; display:flex; flex-direction:column; justify-content:center;">
+                        <p style="margin:0; text-align:center; color:#64748b; font-size:14px; font-style:italic;">Internal Stock Entry Record</p>
+                        <p style="margin:5px 0 0 0; text-align:center; font-size:12px; color:#1e293b;">Ref Lot: ${item.bill_no || 'N/A'}</p>
+                    </div>
+                </div>
+
+                <table class="inv-table indian-table" style="width:100%; border-collapse: collapse; margin-bottom: 0;">
+                    <thead style="background: #e2e8f0; border: 1px solid #cbd5e1;">
+                        <tr>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">S.No</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px;">Fabric Type / Description</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px; text-align:right;">Quantity</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px; text-align:right;">Rate (₹)</th>
+                            <th style="border: 1px solid #cbd5e1; padding: 8px; color:#1e293b; font-size:13px; text-align: right;">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:center; color:#334155;">1</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px;">
+                                <strong style="color:#0f172a;">${item.cloth_type}</strong>
+                            </td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:right; color:#334155;">${item.quantity} ${item.unit}</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:right; color:#334155;">${item.price_per_unit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                            <td style="border: 1px solid #cbd5e1; padding: 10px; text-align:right; color:#334155; font-weight:600;">${baseCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr style="height: 60px;">
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                            <td style="border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;"></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div style="display:flex; border: 1px solid #cbd5e1; border-top: none;">
+                    <div style="flex: 1; padding: 10px; border-right: 1px solid #cbd5e1;">
+                        <p style="margin:0 0 5px 0; color:#1e293b; font-size:12px;"><strong>Internal Notes:</strong></p>
+                        <p style="margin:0; font-size:11px; color:#475569;">${item.notes || 'No internal notes recorded for this stock entry.'}</p>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #cbd5e1; padding: 8px 10px; color:#334155;">
+                            <span>Base Value</span>
+                            <strong>₹${baseCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        ${hasGst ? `
+                        <div style="display:flex; justify-content:space-between; border-bottom: 1px solid #cbd5e1; padding: 6px 10px; color:#475569; font-size:13px;">
+                            <span>GST</span>
+                            <span>₹${gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        ` : ''}
+                        <div style="display:flex; justify-content:space-between; padding: 10px; background: #e2e8f0; font-size: 18px; color:#0f172a;">
+                            <strong>Grand Total Cost</strong>
+                            <strong>₹${finalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="border: 1px solid #cbd5e1; border-top: none; padding: 10px; background:#f8fafc;">
+                    <p style="margin:0; font-size: 13px; color:#475569;"><strong>Amount in Words:</strong></p>
+                    <p style="margin:5px 0 0 0; font-size: 15px; font-weight: 600; color:#1e293b; text-transform:capitalize;">${numberToWords(Math.round(finalTotal))} Rupees Only</p>
+                </div>
+
+                <div style="display:flex; border: 1px solid #cbd5e1; border-top:none;">
+                    <div style="flex: 1.5; padding: 10px; border-right: 1px solid #cbd5e1; display:flex; flex-direction:column; justify-content:flex-end;">
+                        <p style="margin:0; font-size:12px; color:#475569; border-top:1px dashed #cbd5e1; padding-top:5px; width:200px; text-align:center;">Store Keeper Sign</p>
+                    </div>
+                    <div style="flex: 1; padding: 10px; text-align:center; display:flex; flex-direction:column; justify-content:flex-end;">
+                        <p style="margin:0 0 40px 0; font-weight:bold; font-size:13px; color:#0f172a;">For SPY GARMENTS</p>
+                        <p style="margin:0; font-size:12px; border-top:1px solid #cbd5e1; padding-top:5px; color:#475569;">Authorized Signatory</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        this.openModal('invoice-overlay');
+        setTimeout(() => window.print(), 500);
     },
 
     // --- Payment Verification ---
@@ -1959,12 +2354,13 @@ const app = {
             if (resp.ok) {
                 await this.loadAllData();
                 this.closeModal('payment-modal');
-                alert('Payment verified and profit recorded in ledger.');
+                this.showToast('Payment verified and profit recorded in ledger.', 'success');
             } else {
-                alert('Error verifying payment.');
+                this.showToast('Error verifying payment.', 'error');
             }
         } catch (e) {
             console.error(e);
+            this.showToast('Server error while verifying payment.', 'error');
         }
     }
 };

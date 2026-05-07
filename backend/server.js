@@ -79,6 +79,17 @@ app.delete('/api/products/:id', (req, res) => {
     });
 });
 
+// Add stock to existing product
+app.post('/api/products/:id/add-stock', (req, res) => {
+    const { id } = req.params;
+    const { quantity } = req.body;
+    db.run('UPDATE products SET stock = stock + ? WHERE id = ?', [quantity, id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Product not found' });
+        res.json({ success: true });
+    });
+});
+
 // --- Clients Endpoints ---
 
 app.get('/api/clients', (req, res) => {
@@ -183,21 +194,25 @@ app.post('/api/orders/:id/verify', (req, res) => {
         db.serialize(() => {
             // 1. Update order payment status
             db.run('UPDATE orders SET payment_status = "Paid", payment_method = ?, payment_ref = ?, payment_date = ? WHERE id = ?',
-                [paymentMethod, paymentRef, paymentDate, id]);
+                [paymentMethod, paymentRef, paymentDate, id], function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
 
-            // 2. Fetch product and client for description
-            db.get('SELECT name FROM products WHERE id = ?', [order.product_id], (err, product) => {
-                db.get('SELECT name FROM clients WHERE id = ?', [order.client_id], (err, client) => {
-                    const desc = `Payment received for Order #${id} - ${client ? client.name : 'Unknown Client'} (${product ? product.name : 'Unknown Product'}) [${paymentMethod}: ${paymentRef}]`;
-
-                    // 3. Record in Ledger
-                    db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, order_id, client_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                        ['income', 'Order Payment', order.total, desc, paymentDate, id, order.client_id], function (err) {
+                    // 2. Fetch product and client for description
+                    db.get('SELECT name FROM products WHERE id = ?', [order.product_id], (err, product) => {
+                        if (err) return res.status(500).json({ error: err.message });
+                        db.get('SELECT name FROM clients WHERE id = ?', [order.client_id], (err, client) => {
                             if (err) return res.status(500).json({ error: err.message });
-                            res.json({ success: true, message: 'Payment verified and profit recorded.' });
+                            const desc = `Payment received for Order #${id} - ${client ? client.name : 'Unknown Client'} (${product ? product.name : 'Unknown Product'}) [${paymentMethod}: ${paymentRef}]`;
+
+                            // 3. Record in Ledger
+                            db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, order_id, client_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                ['income', 'Order Payment', order.total, desc, paymentDate, id, order.client_id], function (err) {
+                                    if (err) return res.status(500).json({ error: err.message });
+                                    res.json({ success: true, message: 'Payment verified and profit recorded.' });
+                                });
                         });
+                    });
                 });
-            });
         });
     });
 });
@@ -287,7 +302,7 @@ app.post('/api/wholesalers/:id/pay', (req, res) => {
     const { id } = req.params;
     const { amount, date, description } = req.body;
     db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, wholesaler_id) VALUES (?, ?, ?, ?, ?, ?)',
-        ['expense', 'Cloth Purchase Payment', amount, description, date, id], function (err) {
+        ['supplier_payment', 'Cloth Purchase Payment', amount, description, date, id], function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true, id: this.lastID });
         });
@@ -313,6 +328,14 @@ app.post('/api/cloth-inventory', (req, res) => {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ id: this.lastID, ...req.body });
         });
+});
+
+app.delete('/api/cloth-inventory/:id', (req, res) => {
+    db.run('DELETE FROM cloth_inventory WHERE id = ?', req.params.id, function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Cloth inventory item not found' });
+        res.json({ success: true });
+    });
 });
 
 // --- Manufacturing Endpoints ---
@@ -361,20 +384,27 @@ app.post('/api/manufacturing/:id/next-step', (req, res) => {
         db.serialize(() => {
             // Update lot
             db.run('UPDATE manufacturing_lots SET current_step = ?, current_pieces = ?, total_wastage = ? WHERE id = ?',
-                [next_step, newPieces, newTotalWastage, id]);
+                [next_step, newPieces, newTotalWastage, id], function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
 
-            // Record history
-            db.run('INSERT INTO manufacturing_history (lot_id, step_name, wastage, comments, timestamp) VALUES (?, ?, ?, ?, ?)',
-                [id, next_step, wastage, comments, timestamp]);
+                    // Record history
+                    db.run('INSERT INTO manufacturing_history (lot_id, step_name, wastage, comments, timestamp) VALUES (?, ?, ?, ?, ?)',
+                        [id, next_step, wastage, comments, timestamp], function (err) {
+                            if (err) return res.status(500).json({ error: err.message });
 
-            // Record wastage in ledger if any
-            if (wastage > 0) {
-                const wastageCost = wastage * lot.unit_cost;
-                db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, lot_id) VALUES (?, ?, ?, ?, ?, ?)',
-                    ['wastage', 'Manufacturing Wastage', wastageCost, `Wastage at step ${next_step} for Lot ${lot.lot_number} (${wastage} pieces)`, timestamp, id]);
-            }
-
-            res.json({ success: true, current_pieces: newPieces });
+                            // Record wastage in ledger if any
+                            if (wastage > 0) {
+                                const wastageCost = wastage * lot.unit_cost;
+                                db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, lot_id) VALUES (?, ?, ?, ?, ?, ?)',
+                                    ['wastage', 'Manufacturing Wastage', wastageCost, `Wastage at step ${next_step} for Lot ${lot.lot_number} (${wastage} pieces)`, timestamp, id], function (err) {
+                                        if (err) return res.status(500).json({ error: err.message });
+                                        res.json({ success: true, current_pieces: newPieces });
+                                    });
+                            } else {
+                                res.json({ success: true, current_pieces: newPieces });
+                            }
+                        });
+                });
         });
     });
 });
@@ -382,24 +412,62 @@ app.post('/api/manufacturing/:id/next-step', (req, res) => {
 // Finish Lot and move to Inventory
 app.post('/api/manufacturing/:id/finish', (req, res) => {
     const { id } = req.params;
-    const { product_details, timestamp } = req.body; // { name, sku, category, fit, wash, sizes, price }
+    const { product_details, wastage, comments, timestamp } = req.body;
 
     db.get('SELECT * FROM manufacturing_lots WHERE id = ?', [id], (err, lot) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!lot) return res.status(404).json({ error: 'Lot not found' });
 
-        db.serialize(() => {
-            // 1. Mark lot as completed
-            db.run('UPDATE manufacturing_lots SET status = "Completed", current_step = "Completed", finished_at = ? WHERE id = ?', [timestamp, id]);
+        const packingWastage = parseInt(wastage) || 0;
+        const finalPieces = lot.current_pieces - packingWastage;
+        const newTotalWastage = lot.total_wastage + packingWastage;
 
-            // 2. Add to products inventory
-            const { name, sku, category, fit, wash, sizes, price } = product_details;
-            // Unit cost and stock come from the lot
-            db.run(`INSERT INTO products (name, sku, category, fit, wash, sizes, stock, cost_price, price) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [name, sku, category, fit, wash, sizes, lot.current_pieces, lot.unit_cost, price], function (err) {
+        db.serialize(() => {
+            // 1. Update lot: record wastage, mark completed
+            db.run('UPDATE manufacturing_lots SET status = "Completed", current_step = "Completed", current_pieces = ?, total_wastage = ?, finished_at = ? WHERE id = ?', 
+                [finalPieces, newTotalWastage, timestamp, id], function(err) {
                     if (err) return res.status(500).json({ error: err.message });
-                    res.json({ success: true, productId: this.lastID });
+
+                    // 2. Record Packing step in manufacturing history
+                    db.run('INSERT INTO manufacturing_history (lot_id, step_name, wastage, comments, timestamp) VALUES (?, ?, ?, ?, ?)',
+                        [id, 'Packing', packingWastage, comments || 'Packing completed, sent to inventory', timestamp], function(err) {
+                            if (err) return res.status(500).json({ error: err.message });
+
+                            // 3. Record wastage in ledger if any
+                            const afterWastage = () => {
+                                // 4. Add to products inventory
+                                const { name, sku, category, fit, wash, sizes, price } = product_details;
+                                db.run(`INSERT INTO products (name, sku, category, fit, wash, sizes, stock, cost_price, price) 
+                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                    [name, sku, category, fit, wash, sizes, finalPieces, lot.unit_cost, price], function (err) {
+                                        if (err) return res.status(500).json({ error: err.message });
+                                        const newProductId = this.lastID;
+                                        
+                                        // 5. Add Finished Goods cost to ledger as expense
+                                        if (finalPieces > 0) {
+                                            const finalCost = finalPieces * lot.unit_cost;
+                                            db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, lot_id) VALUES (?, ?, ?, ?, ?, ?)',
+                                                ['expense', 'Manufacturing Cost', finalCost, `Manufacturing cost for Lot ${lot.lot_number} (${finalPieces} pieces finished)`, timestamp, id], function(err) {
+                                                    if (err) return res.status(500).json({ error: err.message });
+                                                    res.json({ success: true, productId: newProductId });
+                                                });
+                                        } else {
+                                            res.json({ success: true, productId: newProductId });
+                                        }
+                                    });
+                            };
+
+                            if (packingWastage > 0) {
+                                const wastageCost = packingWastage * lot.unit_cost;
+                                db.run('INSERT INTO ledger_transactions (type, category, amount, description, date, lot_id) VALUES (?, ?, ?, ?, ?, ?)',
+                                    ['wastage', 'Manufacturing Wastage', wastageCost, `Wastage at Packing for Lot ${lot.lot_number} (${packingWastage} pieces)`, timestamp, id], function(err) {
+                                        if (err) return res.status(500).json({ error: err.message });
+                                        afterWastage();
+                                    });
+                            } else {
+                                afterWastage();
+                            }
+                        });
                 });
         });
     });
@@ -457,7 +525,21 @@ app.delete('/api/reset', (req, res) => {
     });
 });
 
+// Global Express Error Handler - catches any unhandled route errors
+app.use((err, req, res, next) => {
+    console.error('Express Error:', err.stack);
+    res.status(500).json({ error: 'Something broke on the server!' });
+});
+
 // Start Server
 app.listen(PORT, () => {
     console.log(`Spy Garments Backend running on http://localhost:${PORT}`);
+});
+
+// Prevent server crashes from unhandled errors
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
