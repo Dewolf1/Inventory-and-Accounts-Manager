@@ -1,17 +1,4 @@
-# Dependencies
+*.log
 node_modules/
-.npm/
-
-# Database
-backend/spy_garments.db
-*.db-journal
-
-# Environment / OS
-.DS_Store
 .env
-.idea/
-.vscode/
-
-# Build / Temp
-dist/
-/home/dewolf/.gemini/
+db.sqlite
